@@ -1,3 +1,16 @@
+/* Fonts are bundled (SIL Open Font License) so the app works offline. */
+@font-face {
+  font-family: "Press Start 2P";
+  src: url("./fonts/press-start-2p.woff2") format("woff2");
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "VT323";
+  src: url("./fonts/vt323.woff2") format("woff2");
+  font-display: swap;
+}
+
 :root {
   --ink: #232042;
   --panel: #2b2750;
@@ -1100,4 +1113,18 @@ button {
   .summary-actions .pixel-btn {
     min-width: 0;
   }
+}
+
+/* ---- Safe areas: keep every panel clear of phone notches, camera cut-outs and home bars ---- */
+
+.ui {
+  position: absolute;
+  z-index: 2;
+  inset: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px)
+    env(safe-area-inset-left, 0px);
+  pointer-events: none;
+}
+
+.ui > * {
+  pointer-events: auto;
 }

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">128BITMAPS</string>
+    <string name="title_activity_main">128BITMAPS</string>
+    <string name="package_name">app.bitmaps128.map</string>
+    <string name="custom_url_scheme">app.bitmaps128.map</string>
+</resources>

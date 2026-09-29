@@ -13,7 +13,7 @@ import {
   type Place,
   type Route,
 } from "./lib/geo";
-import { currentPosition, saveBackupFile } from "./lib/platform";
+import { currentPosition, onBackButton, saveBackupFile } from "./lib/platform";
 import {
   loadCar,
   loadPlaces,
@@ -109,9 +109,9 @@ export default function App() {
   const placeMarkers = useRef<PlaceMarkers | null>(null);
   const driver = useRef<Driver | null>(null);
   const lookup = useRef(0);
-  const live = useRef({ sheet, drive });
+  const live = useRef({ sheet, drive, card });
   useEffect(() => {
-    live.current = { sheet, drive };
+    live.current = { sheet, drive, card };
   });
 
   const icons = useMemo(
@@ -301,6 +301,28 @@ export default function App() {
   }, [map, you]);
 
   useEffect(() => {
+    let off = () => {};
+    let gone = false;
+    void onBackButton(() => {
+      const { sheet: open, drive: driving, card: shown } = live.current;
+      if (driving.status !== "idle") {
+        driver.current?.stop();
+        setDrive({ status: "idle", progress: 0, left: 0 });
+      } else if (open) setSheet(null);
+      else if (shown) setCard(null);
+      else return false;
+      return true;
+    }).then((remove) => {
+      if (gone) remove();
+      else off = remove;
+    });
+    return () => {
+      gone = true;
+      off();
+    };
+  }, []);
+
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         setSheet(null);
@@ -410,6 +432,7 @@ export default function App() {
         <div ref={labelHost} className="map label-map" aria-hidden />
       </div>
 
+      <div className="ui">
       <section ref={panelRef} className="panel trip-panel">
         <header className="brand">
           <span className="logo">128BITMAPS</span>
@@ -621,6 +644,7 @@ export default function App() {
         © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> ·{" "}
         <a href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a> · Photon · OSRM
       </footer>
+      </div>
     </div>
   );
 }

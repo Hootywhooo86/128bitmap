@@ -48,3 +48,13 @@ export async function saveBackupFile(json: string, filename: string): Promise<vo
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+
+// Android's back button: close whatever is open first, and only leave the app when nothing is.
+export async function onBackButton(handler: () => boolean): Promise<() => void> {
+  if (!isNative()) return () => {};
+  const { App } = await import("@capacitor/app");
+  const sub = await App.addListener("backButton", () => {
+    if (!handler()) void App.exitApp();
+  });
+  return () => void sub.remove();
+}
