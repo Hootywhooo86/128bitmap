@@ -37,6 +37,22 @@ function spriteMarker(sprite: Sprite, anchor: "bottom-left" | "bottom" | "center
   return new maplibregl.Marker({ element: img, anchor, offset: anchor === "bottom-left" ? [-6, 0] : [0, 0] });
 }
 
+// Keep the route clear of the trip panel, whether it sits across the top (phone upright)
+// or down the left side (laptop, or phone held sideways).
+function routePadding(panel: HTMLElement | null) {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  const box = panel?.getBoundingClientRect();
+  const side = box !== undefined && box.width < w * 0.6;
+  const pad = side
+    ? { top: 40, bottom: 40, left: box.right + 30, right: 70 }
+    : { top: (box?.bottom ?? 0) + 30, bottom: 70, left: 40, right: 70 };
+  // Never pad more than the map can hold, or it can't fit the route at all.
+  pad.left = Math.min(pad.left, w - pad.right - 60);
+  pad.top = Math.min(pad.top, h - pad.bottom - 60);
+  return pad;
+}
+
 export default function App() {
   const [trip, setTrip] = useState<Trip>(loadTrip);
   const [firstView] = useState(() => (trip.from ? { center: trip.from.at, zoom: 13 } : DEFAULT_VIEW));
@@ -47,6 +63,7 @@ export default function App() {
   const [showSteps, setShowSteps] = useState(false);
   const [dropped, setDropped] = useState<Place | null>(null);
   const [you, setYou] = useState<LngLat | null>(null);
+  const panelRef = useRef<HTMLElement>(null);
   const markers = useRef<{ from?: Marker; to?: Marker; you?: Marker; drop?: Marker }>({});
 
   const icons = useMemo(
@@ -105,13 +122,7 @@ export default function App() {
           (b, p) => b.extend(p),
           new maplibregl.LngLatBounds(next.line[0], next.line[0]),
         );
-        const wide = window.innerWidth >= 760;
-        map.fitBounds(bounds, {
-          padding: wide
-            ? { top: 60, bottom: 60, left: 420, right: 60 }
-            : { top: 230, bottom: 120, left: 40, right: 40 },
-          maxZoom: 16,
-        });
+        map.fitBounds(bounds, { padding: routePadding(panelRef.current), maxZoom: 16 });
       })
       .catch((err: Error) => {
         if (ctrl.signal.aborted) return;
@@ -186,7 +197,7 @@ export default function App() {
         <div ref={labelHost} className="map label-map" aria-hidden />
       </div>
 
-      <section className="panel trip-panel">
+      <section ref={panelRef} className="panel trip-panel">
         <header className="brand">
           <span className="logo">128BITMAPS</span>
           {!map && <span className="loading-text">LOADING…</span>}

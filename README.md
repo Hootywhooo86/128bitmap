@@ -13,7 +13,7 @@ A from → to map app drawn in chunky retro pixel art. Real streets, real direct
 - **Driving route** drawn as a pixel road line that pulses like an old-school game path, with marching dashes heading to the finish flag, plus trip time and distance.
 - **Turn-by-turn steps**: tap one to zoom to that turn.
 - Swap button, and your last trip is remembered on the device.
-- Works on phones and laptops.
+- Works on laptops and on phones held upright or sideways (in landscape the panel slides to a slim left column so the map stays visible).
 
 ## Roadmap
 
