@@ -58,3 +58,87 @@ export async function onBackButton(handler: () => boolean): Promise<() => void> 
   });
   return () => void sub.remove();
 }
+
+export type Fix = { at: LngLat; heading: number | null; speed: number | null; accuracy: number | null };
+
+// Follows your position while navigating. Returns a function that stops following.
+export async function watchPosition(onFix: (fix: Fix) => void, onError: (message: string) => void): Promise<() => void> {
+  const toFix = (c: { latitude: number; longitude: number; heading?: number | null; speed?: number | null; accuracy?: number }): Fix => ({
+    at: [c.longitude, c.latitude],
+    heading: typeof c.heading === "number" && !Number.isNaN(c.heading) ? c.heading : null,
+    speed: typeof c.speed === "number" && !Number.isNaN(c.speed) ? c.speed : null,
+    accuracy: typeof c.accuracy === "number" ? c.accuracy : null,
+  });
+  if (isNative()) {
+    const { Geolocation } = await import("@capacitor/geolocation");
+    const perm = await Geolocation.requestPermissions();
+    if (perm.location === "denied") {
+      onError("Location is off for this app. Turn it on in Settings to get directions as you move.");
+      return () => {};
+    }
+    const id = await Geolocation.watchPosition({ enableHighAccuracy: true, timeout: 15000 }, (pos, err) => {
+      if (pos) onFix(toFix(pos.coords));
+      else if (err) onError("Can't find your position right now.");
+    });
+    return () => void Geolocation.clearWatch({ id });
+  }
+  if (!navigator.geolocation) {
+    onError("This device can't share its location.");
+    return () => {};
+  }
+  const id = navigator.geolocation.watchPosition(
+    (pos) => onFix(toFix(pos.coords)),
+    (err) =>
+      onError(
+        err.code === err.PERMISSION_DENIED
+          ? "Location is blocked. Allow it in your browser settings to get directions as you move."
+          : "Can't find your position right now.",
+      ),
+    { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 },
+  );
+  return () => navigator.geolocation.clearWatch(id);
+}
+
+// Spoken directions use the device's own voice, so they work offline and cost nothing.
+export function speak(text: string) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  try {
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(new SpeechSynthesisUtterance(text));
+  } catch {
+    // Speech is a nice extra; never let it break navigation.
+  }
+}
+
+export function stopSpeaking() {
+  try {
+    if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
+  } catch {
+    // Nothing to stop.
+  }
+}
+
+// Keeps the screen on while you're being guided, where the device allows it.
+export function keepScreenAwake(): () => void {
+  type Lock = { release: () => Promise<void> };
+  const nav = navigator as Navigator & { wakeLock?: { request: (type: "screen") => Promise<Lock> } };
+  if (!nav.wakeLock) return () => {};
+  let lock: Lock | null = null;
+  let stopped = false;
+  const grab = () => {
+    nav.wakeLock?.request("screen").then((l) => {
+      if (stopped) void l.release();
+      else lock = l;
+    }, () => {});
+  };
+  const onVisible = () => {
+    if (document.visibilityState === "visible" && !stopped) grab();
+  };
+  grab();
+  document.addEventListener("visibilitychange", onVisible);
+  return () => {
+    stopped = true;
+    document.removeEventListener("visibilitychange", onVisible);
+    void lock?.release();
+  };
+}

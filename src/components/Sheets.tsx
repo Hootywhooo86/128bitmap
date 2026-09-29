@@ -3,9 +3,11 @@ import type { LngLat } from "../lib/geo";
 import type { SavedPlace } from "../lib/store";
 import { BUILDINGS, SHELVES, buildingsOnShelf, getBuilding, type ShelfId } from "../pixel/buildings";
 import { CARS } from "../pixel/cars";
+import type { Theme } from "../lib/settings";
+import { CLASSIC_COLORS, PIN_SIZE, pinUrl } from "../pixel/classicMarkers";
 import { SpriteImg } from "./SpriteImg";
 
-export type MenuTab = "places" | "garage" | "backup";
+export type MenuTab = "places" | "look" | "backup";
 
 export type Draft = {
   id?: string;
@@ -16,7 +18,7 @@ export type Draft = {
 
 const TABS: { id: MenuTab; label: string }[] = [
   { id: "places", label: "PLACES" },
-  { id: "garage", label: "GARAGE" },
+  { id: "look", label: "LOOK" },
   { id: "backup", label: "BACKUP" },
 ];
 
@@ -31,6 +33,10 @@ type MenuProps = {
   onEdit: (id: string) => void;
   car: string;
   onCar: (id: string) => void;
+  theme: Theme;
+  onTheme: (theme: Theme) => void;
+  voice: boolean;
+  onVoice: (on: boolean) => void;
   onBackup: () => Promise<string>;
   onRestore: (file: File) => Promise<string>;
 };
@@ -58,20 +64,28 @@ export function MenuSheet(p: MenuProps) {
       </header>
       <div className="sheet-body">
         {p.tab === "places" && <PlacesTab {...p} />}
-        {p.tab === "garage" && <GarageTab car={p.car} onCar={p.onCar} />}
+        {p.tab === "look" && <LookTab {...p} />}
         {p.tab === "backup" && <BackupTab count={p.places.length} onBackup={p.onBackup} onRestore={p.onRestore} />}
       </div>
     </section>
   );
 }
 
-function PlacesTab({ places, onOpenPlace, onFrom, onTo, onEdit }: MenuProps) {
+function PlacesTab({ places, onOpenPlace, onFrom, onTo, onEdit, theme }: MenuProps) {
   if (places.length === 0) {
     return (
       <div className="empty">
-        <SpriteImg kind="building" id="castle" scale={3} />
-        <p>No places yet.</p>
-        <p className="dim">Tap the map (or search) and press SAVE PLACE. Then give it a building: the gym can be a dungeon and work can be a prison.</p>
+        {theme === "retro" ? (
+          <SpriteImg kind="building" id="castle" scale={3} />
+        ) : (
+          <img src={pinUrl(CLASSIC_COLORS.saved)} width={PIN_SIZE.w} height={PIN_SIZE.h} alt="" />
+        )}
+        <p>No saved places yet.</p>
+        <p className="dim">
+          {theme === "retro"
+            ? "Tap the map (or search) and press SAVE. Then give it a building: the gym can be a dungeon and work can be a prison."
+            : "Tap the map (or search) and press SAVE, for example Home, Work or the gym. Saved places show up when you type in From or To."}
+        </p>
       </div>
     );
   }
@@ -80,10 +94,14 @@ function PlacesTab({ places, onOpenPlace, onFrom, onTo, onEdit }: MenuProps) {
       {places.map((s) => (
         <li key={s.id}>
           <button className="place-row-main" onClick={() => onOpenPlace(s.id)}>
-            <SpriteImg kind="building" id={s.building} scale={2} />
+            {theme === "retro" ? (
+              <SpriteImg kind="building" id={s.building} scale={2} />
+            ) : (
+              <img className="row-pin" src={pinUrl(CLASSIC_COLORS.saved)} width={PIN_SIZE.w * 0.75} height={PIN_SIZE.h * 0.75} alt="" />
+            )}
             <span className="hit-text">
               <span className="hit-label">{s.name}</span>
-              <span className="hit-detail">{getBuilding(s.building).name}</span>
+              <span className="hit-detail">{theme === "retro" ? getBuilding(s.building).name : "Saved place"}</span>
             </span>
           </button>
           <div className="row-actions">
@@ -103,10 +121,39 @@ function PlacesTab({ places, onOpenPlace, onFrom, onTo, onEdit }: MenuProps) {
   );
 }
 
+function LookTab({ theme, onTheme, voice, onVoice, car, onCar }: MenuProps) {
+  return (
+    <div className="look">
+      <h3 className="sec">Map style</h3>
+      <div className="theme-choice" role="radiogroup" aria-label="Map style">
+        <button role="radio" aria-checked={theme === "classic"} className={theme === "classic" ? "theme-card on" : "theme-card"} onClick={() => onTheme("classic")}>
+          <span className="theme-name">Classic</span>
+          <span className="dim">A clean street map, like a normal maps app.</span>
+        </button>
+        <button role="radio" aria-checked={theme === "retro"} className={theme === "retro" ? "theme-card on" : "theme-card"} onClick={() => onTheme("retro")}>
+          <span className="theme-name">Retro</span>
+          <span className="dim">Pixel-art map, buildings for your places, and a car to watch.</span>
+        </button>
+      </div>
+      <h3 className="sec">Voice directions</h3>
+      <button role="switch" aria-checked={voice} className={voice ? "switch on" : "switch"} onClick={() => onVoice(!voice)}>
+        <span className="switch-knob" />
+        <span>{voice ? "On: speaks each turn" : "Off"}</span>
+      </button>
+      {theme === "retro" && (
+        <>
+          <h3 className="sec">Car</h3>
+          <GarageTab car={car} onCar={onCar} />
+        </>
+      )}
+    </div>
+  );
+}
+
 function GarageTab({ car, onCar }: { car: string; onCar: (id: string) => void }) {
   return (
     <div>
-      <p className="dim hint">Pick the car that drives your route.</p>
+      <p className="dim hint">Pick the car for the CAR preview of your route.</p>
       <ul className="car-grid">
         {CARS.map((c) => (
           <li key={c.id}>
@@ -177,6 +224,7 @@ function BackupTab({
 }
 
 type EditorProps = {
+  theme: Theme;
   draft: Draft;
   onChange: (draft: Draft) => void;
   onSave: () => void;
@@ -184,7 +232,7 @@ type EditorProps = {
   onCancel: () => void;
 };
 
-export function PlaceEditor({ draft, onChange, onSave, onDelete, onCancel }: EditorProps) {
+export function PlaceEditor({ theme, draft, onChange, onSave, onDelete, onCancel }: EditorProps) {
   const [shelf, setShelf] = useState<ShelfId>(getBuilding(draft.building).shelf);
   const [confirm, setConfirm] = useState(false);
   const current = getBuilding(draft.building);
@@ -201,7 +249,11 @@ export function PlaceEditor({ draft, onChange, onSave, onDelete, onCancel }: Edi
       <div className="sheet-body">
         <div className="name-row">
           <div className="preview-box">
-            <SpriteImg kind="building" id={draft.building} scale={2} />
+            {theme === "retro" ? (
+              <SpriteImg kind="building" id={draft.building} scale={2} />
+            ) : (
+              <img src={pinUrl(CLASSIC_COLORS.saved)} width={PIN_SIZE.w} height={PIN_SIZE.h} alt="" />
+            )}
           </div>
           <div className="name-col">
             <input
@@ -213,10 +265,12 @@ export function PlaceEditor({ draft, onChange, onSave, onDelete, onCancel }: Edi
               onChange={(e) => onChange({ ...draft, name: e.target.value })}
             />
             <span className="dim hint">
-              {current.name} · tap the map to move it
+              {theme === "retro" ? `${current.name} · ` : ""}tap the map to move it
             </span>
           </div>
         </div>
+        {theme === "retro" && (
+        <>
         <div className="chips" role="tablist" aria-label="Building shelves">
           {SHELVES.map((s) => (
             <button
@@ -244,6 +298,8 @@ export function PlaceEditor({ draft, onChange, onSave, onDelete, onCancel }: Edi
             </li>
           ))}
         </ul>
+        </>
+        )}
       </div>
       <footer className="sheet-foot">
         <button className="pixel-btn go-from grow" disabled={!canSave} onClick={onSave}>

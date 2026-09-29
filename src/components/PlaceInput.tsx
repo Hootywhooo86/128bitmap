@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { searchPlaces, type LngLat, type Place } from "../lib/geo";
 import { savedToPlace, type SavedPlace } from "../lib/store";
+import { CLASSIC_COLORS, PIN_SIZE, pinUrl } from "../pixel/classicMarkers";
 import { SpriteImg } from "./SpriteImg";
 
 type Props = {
@@ -9,6 +10,7 @@ type Props = {
   value: Place | null;
   near: () => LngLat | null;
   saved: SavedPlace[];
+  buildings: boolean;
   canSave: boolean;
   onPick: (place: Place) => void;
   onClear: () => void;
@@ -24,6 +26,7 @@ export function PlaceInput({
   value,
   near,
   saved,
+  buildings,
   canSave,
   onPick,
   onClear,
@@ -90,7 +93,7 @@ export function PlaceInput({
 
   return (
     <div className="place-input">
-      {value?.building ? (
+      {buildings && value?.building ? (
         <span className="place-icon place-icon-building">
           <SpriteImg kind="building" id={value.building} scale={1} animated={false} />
         </span>
@@ -146,9 +149,13 @@ export function PlaceInput({
                   <span className="hit-label">◎ Use my location</span>
                 ) : (
                   <span className="hit-row">
-                    {item.isSaved && item.place.building && (
-                      <SpriteImg kind="building" id={item.place.building} scale={1} animated={false} />
-                    )}
+                    {item.isSaved &&
+                      item.place.building &&
+                      (buildings ? (
+                        <SpriteImg kind="building" id={item.place.building} scale={1} animated={false} />
+                      ) : (
+                        <img className="row-pin" src={pinUrl(CLASSIC_COLORS.saved)} width={PIN_SIZE.w * 0.6} height={PIN_SIZE.h * 0.6} alt="" />
+                      ))}
                     <span className="hit-text">
                       <span className="hit-label">{item.place.label}</span>
                       {item.place.detail && <span className="hit-detail">{item.place.detail}</span>}

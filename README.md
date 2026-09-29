@@ -1,38 +1,43 @@
 # 128BITMAPS
 
-A from → to map app drawn in chunky retro pixel art. Real streets, real directions, 16-bit style.
-Save your own places as tiny animated pixel buildings (the gym is a dungeon, work is a prison, home is a castle) and watch a pixel car drive your route.
+A maps app. Pick point A and point B and it guides you there, turn by turn, using your real position, with spoken directions.
+It looks like a normal maps app by default. If you like, there is an optional **Retro** look: a pixel-art map, tiny animated buildings for your saved places, and a car you can watch drive your route.
 
-![Route on desktop](docs/desktop-route.png)
+| Choose A and B | Guided, turn by turn | Off route? It re-routes |
+|---|---|---|
+| ![Route preview](docs/classic-route.png) | ![Navigating](docs/classic-navigating.png) | ![Rerouting](docs/classic-rerouting.png) |
 
 ## What it does
 
-- **Pixel-art map of the real world.** OpenStreetMap data drawn in a small retro palette at 1/3 resolution and scaled up without smoothing, so every street turns into chunky pixels. Names are drawn on a separate sharp layer so they stay readable.
-- **From / To directions.** Search as you type, tap the map to drop a pin, or use your location. The route pulses like an old-school game path, with time, distance and tappable turn-by-turn steps.
-- **Your places, as buildings.** Tap the map (or search, or use the ★ in the From/To boxes), name the spot and pick one of **50 animated pixel buildings** on 10 shelves. The building shows on the map, and a name like "Planet Fitness" or "Grandma's house" suggests a fitting one. Edit, move (tap the map while editing) and delete places any time. Saved places also show up in the From/To boxes for one-tap trips.
-- **A garage of 10 pixel cars** and a **GO ▶** button: the car drives your route, the camera follows it, and it tilts up and down hills.
-- **Backup and restore.** Save your places and car to a file and restore them on another phone. Restoring only adds, it never deletes.
-- **Works everywhere.** Laptops, phones held upright, phones held sideways. Every menu is a side panel, a bottom sheet or a side column so the map is always visible.
-- **Works as a real app.** Installable from the browser, and wrapped for Android and iPhone with Capacitor.
+- **Directions from A to B.** Search as you type, tap the map to drop a pin, or use your location. Choose **Drive, Walk or Bike**. You get the time, distance and a list of steps.
+- **Real guidance while you move.** Press **START** and it follows your GPS position: a big banner shows the next turn and how far away it is, with a "then" preview, the time you'll arrive and how much is left. The map turns to face the way you're heading. Drag the map to look around and tap **RECENTER** to snap back.
+- **Voice directions.** It says each turn out loud ("In 500 feet, turn left onto 87 Avenue"). Turn it off from the speaker button or the menu.
+- **Re-routes when you miss a turn.** If you leave the route it says "Rerouting…" and finds a new way from where you are.
+- **Saved places.** Tap the map (or search) and press **SAVE**, for example Home, Work or the gym. Saved places show up when you type in From or To.
+- **Backup and restore** your places as a file, to move them to another phone.
+- **Opens where you are** the first time, like any maps app.
+- **Works on laptops and phones**, upright or sideways. Menus are a side panel, a bottom sheet or a side column so the map is always visible.
+- **Installs like an app.** Add it to your home screen from the browser, or use the Android/iPhone projects below.
 
-### The 50 buildings
+### Retro look (optional)
 
-| Shelf | Buildings |
-|---|---|
-| Homes | Castle, Cottage, Treehouse, Igloo, Wizard Tower |
-| Work | Prison, Factory, Office Tower, Mine, Lab |
-| Fitness | Dungeon, Arena, Dojo, Boxing Ring, Climbing Peak |
-| Food | Tavern, Pizza Cave, Potion Bar, Food Truck, Candy House |
-| Shops | Market Stall, Treasure Vault, Blacksmith, Bazaar, Arcade |
-| School | Library, Academy, Observatory, Schoolhouse, Kindergarten |
-| Health | Healing Temple, Hospital, Herb Hut, Pharmacy, Hot Spring |
-| Fun | Haunted House, Ferris Wheel, Pirate Ship, Stadium, Theater |
-| Travel | Airship Dock, Train Station, Pit Stop, Lighthouse, Motel |
-| Family | Fort, Log Cabin, Farm, Campsite, Party House |
+Open **MENU → LOOK → Retro** to switch. You get the pixel-art map, a pulsing route, and:
 
-Cars: Muscle, Taxi, Van, Monster, Go-Kart, Delivery, Hover, Bus, Sports, Pickup.
+- **50 animated pixel buildings** for your saved places, on 10 shelves (the gym as a dungeon, work as a prison, home as a castle, and 47 more). A name like "Planet Fitness" or "Grandma's house" suggests a fitting one.
+- **10 pixel cars** and a **CAR ▶** button that drives a cartoon car along your route (a preview, separate from real guidance).
 
-Every building and car is drawn in code (`src/pixel/`), so there are no image files to manage and adding one is a few lines. To look at them all, run `npm run dev` and open `/?sprites`.
+Everything in the retro look is drawn in code (`src/pixel/`), so there are no image files to manage. To see all of it, run `npm run dev` and open `/?sprites`.
+
+![Retro buildings and cars](docs/retro/buildings-and-cars.gif)
+
+## What it doesn't do yet
+
+Be aware, this is a personal-scale app built on free services:
+
+- **No live traffic**, no lane guidance and no public transit directions.
+- **Guidance needs the app open with the screen on.** It asks the phone to keep the screen awake. It doesn't navigate in the background yet.
+- **Needs an internet connection** for the map, search and routes (there are no offline maps).
+- Walking and cycling routes come from a free community server, and routes for a big trip can take a moment.
 
 ## Run it
 
@@ -54,7 +59,7 @@ On a phone, open that link and use **Add to Home Screen** for a full-screen app 
 
 ## Android and iPhone apps
 
-The web app is wrapped with [Capacitor](https://capacitorjs.com): `android/` and `ios/` are ready-made native projects that load the same code.
+The web app is wrapped with [Capacitor](https://capacitorjs.com): `android/` and `ios/` are native projects that load the same code, using the phone's own location and voice.
 
 After changing the web app, sync it into both projects:
 
@@ -70,7 +75,7 @@ cd android && ./gradlew assembleDebug    # or build an installable test file
 # -> android/app/build/outputs/apk/debug/app-debug.apk
 ```
 
-To publish on Google Play you need a [Play Console](https://play.google.com/console) account (one-time US$25) and a signed release build (Android Studio: *Build → Generate Signed App Bundle*).
+A ready-made test build is in [`releases/`](releases/README.md). To publish on Google Play you need a [Play Console](https://play.google.com/console) account (one-time US$25) and a signed release build (Android Studio: *Build → Generate Signed App Bundle*).
 
 ### iPhone
 
@@ -85,18 +90,22 @@ To publish on the App Store you need an [Apple Developer](https://developer.appl
 ### Before you publish
 
 - **App ID.** `app.bitmaps128.map` in `capacitor.config.ts` is the app's permanent store ID. Change it before the first release; it can't change afterwards.
-- **Search and routes.** The free public Photon (search) and OSRM (directions) servers are fine for personal use. For a public launch, switch to a routing/search service with its own API key (see `src/lib/geo.ts`).
+- **Search and routes.** The free public Photon (search) and FOSSGIS OSRM (routes) servers are fine for personal use. For a public launch, switch to a routing/search service with its own API key (see `src/lib/geo.ts`).
 - **Map tiles.** OpenFreeMap is free and needs no key. Keep the OpenStreetMap credit visible.
+
+## How guidance works
+
+`src/nav/Navigator.ts` follows your position, snaps it to the route near where you last were, works out the next maneuver and its distance, speaks it, and asks for a new route after a few positions away from the road. `src/nav/geometry.ts` holds the maths. Tests fed a fake GPS track along a real route, including driving off it, and checked the banner, the distance left, arrival and re-routing.
 
 ## Built with
 
-React + TypeScript + Vite, [MapLibre GL](https://maplibre.org/) for the map, free map data from [OpenFreeMap](https://openfreemap.org), search from [Photon](https://photon.komoot.io), routes from the public [OSRM](https://project-osrm.org) server, and [Capacitor](https://capacitorjs.com) for the phone apps. Fonts: Press Start 2P and VT323 (SIL Open Font License), bundled. Map data © OpenStreetMap contributors.
+React + TypeScript + Vite, [MapLibre GL](https://maplibre.org/) for the map, free map data from [OpenFreeMap](https://openfreemap.org), search from [Photon](https://photon.komoot.io), routes from the [FOSSGIS](https://routing.openstreetmap.de) OSRM servers, and [Capacitor](https://capacitorjs.com) for the phone apps. Fonts for the retro look: Press Start 2P and VT323 (SIL Open Font License), bundled. Map data © OpenStreetMap contributors.
 
 ## Roadmap
 
-1. ~~Pixel map + From/To directions~~
-2. ~~Save places with pixel buildings~~
-3. ~~Pixel cars and the drive animation~~
-4. ~~All 50 animated buildings~~
-5. ~~Backup/restore, install as an app, Android and iPhone projects~~
-6. Next ideas: sign-in to sync places between devices, sharing a place with a friend, more buildings and cars, sound effects
+1. ~~Map with directions from A to B~~
+2. ~~Real turn-by-turn guidance, voice and re-routing~~
+3. ~~Saved places, Drive/Walk/Bike, backup~~
+4. ~~Optional retro look with buildings and cars~~
+5. ~~Installable app, Android and iPhone projects~~
+6. Next: navigation that keeps working with the screen off, live traffic, offline maps, sync places between devices, share a place with a friend

@@ -8,8 +8,10 @@ import {
   formatDistance,
   formatDuration,
   getRoute,
+  MODES,
   reverseLookup,
   type LngLat,
+  type Mode,
   type Place,
   type Route,
 } from "./lib/geo";
@@ -29,7 +31,11 @@ import {
 } from "./lib/store";
 import { Driver } from "./map/drive";
 import { PlaceMarkers } from "./map/placeMarkers";
-import { setRouteLine, useRetroMap } from "./map/useRetroMap";
+import { setRouteLine, useAppMap } from "./map/useAppMap";
+import { NavBanner, NavBar } from "./components/NavUI";
+import { Navigator, type NavState } from "./nav/Navigator";
+import { loadMode, loadTheme, loadVoice, saveMode, saveTheme, saveVoice, type Theme } from "./lib/settings";
+import { CLASSIC_COLORS, DOT_SIZE, PIN_SIZE, dotUrl, pinUrl } from "./pixel/classicMarkers";
 import { getBuilding, suggestBuilding } from "./pixel/buildings";
 import { DROP_PIN, GOAL_FLAG, START_FLAG, YOU_DOT, spriteToDataUrl, type Sprite } from "./pixel/sprites";
 
@@ -57,6 +63,16 @@ function spriteMarker(sprite: Sprite, anchor: "bottom-left" | "bottom" | "center
   img.className = "sprite-marker";
   img.style.width = `${sprite.grid[0].length * 3}px`;
   return new maplibregl.Marker({ element: img, anchor, offset: anchor === "bottom-left" ? [-6, 0] : [0, 0] });
+}
+
+function svgMarker(url: string, size: { w: number; h: number }, anchor: "center" | "bottom") {
+  const img = document.createElement("img");
+  img.src = url;
+  img.width = size.w;
+  img.height = size.h;
+  img.className = "sprite-marker svg-marker";
+  img.alt = "";
+  return new maplibregl.Marker({ element: img, anchor });
 }
 
 // Keep the route clear of the trip panel, whether it sits across the top (phone upright)
@@ -91,11 +107,19 @@ export default function App() {
   const [trip, setTrip] = useState<Trip>(loadTrip);
   const [places, setPlaces] = useState<SavedPlace[]>(loadPlaces);
   const [car, setCar] = useState<string>(loadCar);
+  const [theme, setTheme] = useState<Theme>(loadTheme);
+  const [voice, setVoice] = useState<boolean>(loadVoice);
+  const [mode, setMode] = useState<Mode>(loadMode);
+  const modeRef = useRef(mode);
+  useEffect(() => {
+    modeRef.current = mode;
+  });
+  const [nav, setNav] = useState<NavState | null>(null);
   const [firstView] = useState(() => {
     const at = trip.from?.at ?? places[0]?.at;
     return at ? { center: at, zoom: 13 } : DEFAULT_VIEW;
   });
-  const { artHost, labelHost, map } = useRetroMap(firstView);
+  const { artHost, labelHost, map } = useAppMap(theme, firstView);
   const [route, setRoute] = useState<Route | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,15 +132,19 @@ export default function App() {
   const markers = useRef<{ from?: Marker; to?: Marker; you?: Marker; drop?: Marker }>({});
   const placeMarkers = useRef<PlaceMarkers | null>(null);
   const driver = useRef<Driver | null>(null);
+  const guidance = useRef<Navigator | null>(null);
   const lookup = useRef(0);
-  const live = useRef({ sheet, drive, card });
+  const live = useRef({ sheet, drive, card, nav, theme });
   useEffect(() => {
-    live.current = { sheet, drive, card };
+    live.current = { sheet, drive, card, nav, theme };
   });
 
   const icons = useMemo(
-    () => ({ start: spriteToDataUrl(START_FLAG, 2), goal: spriteToDataUrl(GOAL_FLAG, 2) }),
-    [],
+    () =>
+      theme === "retro"
+        ? { start: spriteToDataUrl(START_FLAG, 2), goal: spriteToDataUrl(GOAL_FLAG, 2) }
+        : { start: dotUrl(CLASSIC_COLORS.from), goal: pinUrl(CLASSIC_COLORS.to) },
+    [theme],
   );
 
   const near = useCallback((): LngLat | null => {
@@ -147,7 +175,7 @@ export default function App() {
   // Saved places live on the map as animated pixel buildings.
   useEffect(() => {
     if (!map) return;
-    const layer = new PlaceMarkers(map, (id) => openSaved(id));
+    const layer = new PlaceMarkers(map, (id) => openSaved(id), theme);
     placeMarkers.current = layer;
     layer.sync(places);
     return () => {
@@ -156,7 +184,7 @@ export default function App() {
     };
     // The layer is created once per map; places are pushed in by the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [map, openSaved]);
+  }, [map, openSaved, theme]);
 
   useEffect(() => {
     placeMarkers.current?.sync(places);
@@ -180,12 +208,40 @@ export default function App() {
       markers.current[key] = undefined;
       const place = trip[key];
       if (place) {
-        markers.current[key] = spriteMarker(key === "from" ? START_FLAG : GOAL_FLAG, "bottom-left")
-          .setLngLat(place.at)
-          .addTo(map);
+        const marker =
+          theme === "retro"
+            ? spriteMarker(key === "from" ? START_FLAG : GOAL_FLAG, "bottom-left")
+            : key === "from"
+              ? svgMarker(dotUrl(CLASSIC_COLORS.from), DOT_SIZE, "center")
+              : svgMarker(pinUrl(CLASSIC_COLORS.to), PIN_SIZE, "bottom");
+        markers.current[key] = marker.setLngLat(place.at).addTo(map);
       }
     }
-  }, [map, trip]);
+  }, [map, trip, theme]);
+
+  // Guides you along the route using your real position.
+  useEffect(() => {
+    if (!map) return;
+    const g = new Navigator(
+      map,
+      {
+        onState: setNav,
+        onReroute: (next) => {
+          setRoute(next);
+          setRouteLine(map, next.line);
+        },
+        getRoute: (a, b, signal) => getRoute(a, b, signal, modeRef.current),
+        mode: () => modeRef.current,
+      },
+      theme === "classic",
+    );
+    guidance.current = g;
+    return () => {
+      g.stop();
+      guidance.current = null;
+      setNav(null);
+    };
+  }, [map, theme]);
 
   // The car that drives your route.
   useEffect(() => {
@@ -205,6 +261,8 @@ export default function App() {
   useEffect(() => {
     if (!map) return;
     driver.current?.stop();
+    guidance.current?.stop();
+    setNav(null);
     setDrive({ status: "idle", progress: 0, left: 0 });
     const { from, to } = trip;
     if (!from || !to) {
@@ -217,7 +275,7 @@ export default function App() {
     const ctrl = new AbortController();
     setLoading(true);
     setError(null);
-    getRoute(from.at, to.at, ctrl.signal)
+    getRoute(from.at, to.at, ctrl.signal, mode)
       .then((next) => {
         setRoute(next);
         setRouteLine(map, next.line);
@@ -237,7 +295,7 @@ export default function App() {
         if (!ctrl.signal.aborted) setLoading(false);
       });
     return () => ctrl.abort();
-  }, [map, trip]);
+  }, [map, trip, mode]);
 
   const closePin = useCallback(() => {
     lookup.current++;
@@ -262,7 +320,13 @@ export default function App() {
       }
       const token = ++lookup.current;
       markers.current.drop?.remove();
-      markers.current.drop = spriteMarker(DROP_PIN, "bottom").setLngLat(at).addTo(map);
+      markers.current.drop = (
+        live.current.theme === "retro"
+          ? spriteMarker(DROP_PIN, "bottom")
+          : svgMarker(pinUrl(CLASSIC_COLORS.drop), PIN_SIZE, "bottom")
+      )
+        .setLngLat(at)
+        .addTo(map);
       setCard({ kind: "pin", place: { label: "Dropped pin", detail: "Looking up…", at } });
       const place = await reverseLookup(at);
       if (token === lookup.current) setCard({ kind: "pin", place });
@@ -276,6 +340,24 @@ export default function App() {
   useEffect(() => {
     if (card?.kind !== "pin") closePin();
   }, [card, closePin]);
+
+  // First launch with nothing saved: open the map on where you are, like any maps app.
+  const openedOnMe = useRef(false);
+  useEffect(() => {
+    if (!map || openedOnMe.current || trip.from || trip.to || places.length > 0) return;
+    openedOnMe.current = true;
+    currentPosition().then(
+      (at) => {
+        setYou(at);
+        map.jumpTo({ center: at, zoom: 14 });
+      },
+      () => {
+        // No permission or no signal: stay on the default view.
+      },
+    );
+    // Only on the first map of this visit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map]);
 
   const locate = useCallback(
     async (then?: (place: Place) => void) => {
@@ -297,15 +379,21 @@ export default function App() {
   useEffect(() => {
     if (!map) return;
     markers.current.you?.remove();
-    if (you) markers.current.you = spriteMarker(YOU_DOT, "center").setLngLat(you).addTo(map);
-  }, [map, you]);
+    if (you) {
+      const m = theme === "retro" ? spriteMarker(YOU_DOT, "center") : svgMarker(dotUrl("#1a73e8"), DOT_SIZE, "center");
+      markers.current.you = m.setLngLat(you).addTo(map);
+    }
+  }, [map, you, theme]);
 
   useEffect(() => {
     let off = () => {};
     let gone = false;
     void onBackButton(() => {
-      const { sheet: open, drive: driving, card: shown } = live.current;
-      if (driving.status !== "idle") {
+      const { sheet: open, drive: driving, card: shown, nav: guided } = live.current;
+      if (guided) {
+        guidance.current?.stop();
+        setNav(null);
+      } else if (driving.status !== "idle") {
         driver.current?.stop();
         setDrive({ status: "idle", progress: 0, left: 0 });
       } else if (open) setSheet(null);
@@ -402,6 +490,36 @@ export default function App() {
     return `Restored ${restored.places.length} ${restored.places.length === 1 ? "place" : "places"}${skipped}.`;
   };
 
+  const changeTheme = (next: Theme) => {
+    setTheme(next);
+    saveTheme(next);
+  };
+
+  const changeMode = (next: Mode) => {
+    setMode(next);
+    saveMode(next);
+  };
+
+  const changeVoice = (on: boolean) => {
+    setVoice(on);
+    saveVoice(on);
+    guidance.current?.setVoice(on);
+  };
+
+  const startNav = () => {
+    if (!route || !trip.to) return;
+    setCard(null);
+    setSheet(null);
+    driver.current?.stop();
+    setDrive({ status: "idle", progress: 0, left: 0 });
+    void guidance.current?.start(route, trip.to.at, voice);
+  };
+
+  const endNav = () => {
+    guidance.current?.stop();
+    setNav(null);
+  };
+
   const startDrive = () => {
     if (!route) return;
     setCard(null);
@@ -426,7 +544,9 @@ export default function App() {
   const canSaveEnd = (p: Place) => !places.some((s) => samePlace(s.at, p.at));
 
   return (
-    <div className={`app${sheet ? " sheet-open" : ""}${driving ? " driving" : ""}`}>
+    <div
+      className={`app theme-${theme}${sheet ? " sheet-open" : ""}${driving ? " driving" : ""}${nav ? " navigating" : ""}`}
+    >
       <div className="map-stack">
         <div ref={artHost} className="map art-map" />
         <div ref={labelHost} className="map label-map" aria-hidden />
@@ -452,6 +572,7 @@ export default function App() {
             value={trip.from}
             near={near}
             saved={places}
+            buildings={theme === "retro"}
             canSave={!!trip.from && canSaveEnd(trip.from)}
             onPick={setEnd("from")}
             onClear={() => setEnd("from")(null)}
@@ -464,6 +585,7 @@ export default function App() {
             value={trip.to}
             near={near}
             saved={places}
+            buildings={theme === "retro"}
             canSave={!!trip.to && canSaveEnd(trip.to)}
             onPick={setEnd("to")}
             onClear={() => setEnd("to")(null)}
@@ -480,6 +602,26 @@ export default function App() {
           </button>
         </div>
 
+        <div className="modes" role="radiogroup" aria-label="Travel mode">
+          {MODES.map((m) => (
+            <button
+              key={m.id}
+              role="radio"
+              aria-checked={mode === m.id}
+              className={mode === m.id ? "mode on" : "mode"}
+              onClick={() => changeMode(m.id)}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        {trip.to && !trip.from && (
+          <button className="pixel-btn go-from wide" onClick={() => locate(setEnd("from"))}>
+            USE MY LOCATION AS START
+          </button>
+        )}
+
         {loading && <p className="status blink">FINDING ROUTE…</p>}
         {error && <p className="status error">{error}</p>}
 
@@ -490,9 +632,14 @@ export default function App() {
               <span className="dim"> · {formatDistance(route.distance)}</span>
             </div>
             <div className="summary-actions">
-              <button className="pixel-btn go-from" onClick={startDrive} aria-label="Drive the route">
-                GO ▶
+              <button className="pixel-btn go-from start-btn" onClick={startNav} aria-label="Start navigation">
+                START
               </button>
+              {theme === "retro" && mode === "drive" && (
+                <button className="pixel-btn" onClick={startDrive} aria-label="Watch the car drive the route">
+                  CAR ▶
+                </button>
+              )}
               <button className="pixel-btn" onClick={() => setShowSteps((s) => !s)}>
                 {showSteps ? "HIDE" : "STEPS"}
               </button>
@@ -515,7 +662,20 @@ export default function App() {
         )}
       </section>
 
-      {driving && (
+      {nav && (
+        <>
+          <NavBanner state={nav} />
+          <NavBar
+            state={nav}
+            voice={voice}
+            onVoice={changeVoice}
+            onRecenter={() => guidance.current?.recenter()}
+            onEnd={endNav}
+          />
+        </>
+      )}
+
+      {driving && !nav && (
         <section className="panel drive-bar" aria-live="polite">
           {drive.status === "driving" ? (
             <>
@@ -543,17 +703,23 @@ export default function App() {
         </section>
       )}
 
-      {cardPlace && !sheet && !driving && (
+      {cardPlace && !sheet && !driving && !nav && (
         <section className="panel drop-panel">
           <div className="drop-info">
             {cardSaved && (
               <span className="card-icon">
-                <SpriteImg kind="building" id={cardSaved.building} scale={2} />
+                {theme === "retro" ? (
+                  <SpriteImg kind="building" id={cardSaved.building} scale={2} />
+                ) : (
+                  <img src={pinUrl(CLASSIC_COLORS.saved)} width={PIN_SIZE.w * 0.75} height={PIN_SIZE.h * 0.75} alt="" />
+                )}
               </span>
             )}
             <span className="card-text">
               <span className="hit-label">{cardPlace.label}</span>
-              <span className="hit-detail">{cardSaved ? getBuilding(cardSaved.building).name : cardPlace.detail}</span>
+              <span className="hit-detail">
+                {cardSaved ? (theme === "retro" ? getBuilding(cardSaved.building).name : "Saved place") : cardPlace.detail}
+              </span>
             </span>
           </div>
           <div className="drop-actions">
@@ -613,6 +779,10 @@ export default function App() {
           onEdit={editSaved}
           car={car}
           onCar={pickCar}
+          theme={theme}
+          onTheme={changeTheme}
+          voice={voice}
+          onVoice={changeVoice}
           onBackup={doBackup}
           onRestore={doRestore}
         />
@@ -620,6 +790,7 @@ export default function App() {
 
       {sheet?.kind === "editor" && (
         <PlaceEditor
+          theme={theme}
           draft={sheet.draft}
           onChange={(d) => setSheet({ kind: "editor", draft: d })}
           onSave={saveDraft}

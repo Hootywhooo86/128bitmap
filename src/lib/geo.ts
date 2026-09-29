@@ -70,10 +70,21 @@ type OsrmStep = {
   maneuver: { type: string; modifier?: string; location: LngLat; exit?: number };
 };
 
-// OSRM's public demo server: fine for a personal app, swap for a keyed service before a public launch.
-export async function getRoute(from: LngLat, to: LngLat, signal: AbortSignal): Promise<Route> {
+export type Mode = "drive" | "walk" | "bike";
+
+export const MODES: { id: Mode; label: string }[] = [
+  { id: "drive", label: "Drive" },
+  { id: "walk", label: "Walk" },
+  { id: "bike", label: "Bike" },
+];
+
+const PROFILE: Record<Mode, string> = { drive: "routed-car", walk: "routed-foot", bike: "routed-bike" };
+
+// Routes come from the free FOSSGIS OSRM servers (car, foot and bike profiles). Fine for personal
+// use; swap for a keyed routing service before a big public launch.
+export async function getRoute(from: LngLat, to: LngLat, signal: AbortSignal, mode: Mode = "drive"): Promise<Route> {
   const coords = `${from[0]},${from[1]};${to[0]},${to[1]}`;
-  const url = `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true`;
+  const url = `https://routing.openstreetmap.de/${PROFILE[mode]}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true`;
   const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`Route failed (${res.status})`);
   const body = (await res.json()) as {
@@ -144,7 +155,7 @@ function arrowFor(type: string, dir: string): string {
   return "↑";
 }
 
-const usesMiles = () => /^en-(US|GB|LR|MM)$/i.test(navigator.language);
+export const usesMiles = () => /^en-(US|GB|LR|MM)$/i.test(navigator.language);
 
 export function formatDistance(meters: number): string {
   if (usesMiles()) {

@@ -4,6 +4,7 @@ import type { Map as MLMap } from "maplibre-gl";
 import { PALETTE, retroStyle } from "./retroStyle";
 import type { Feature, LineString } from "geojson";
 import type { LngLat } from "../lib/geo";
+import type { Theme } from "../lib/settings";
 import workerUrl from "./maplibre-worker?worker&url";
 
 maplibregl.setWorkerUrl(workerUrl);
@@ -14,94 +15,127 @@ export const CHUNK = 3;
 
 const LABEL_LAYERS = new Set(["road-label", "water-label", "place-label"]);
 
-// Two stacked maps that move together:
-//  - the art map renders at 1/CHUNK resolution and is scaled up without smoothing,
-//    which is what turns real streets into chunky pixels;
-//  - the label map renders only text, at full sharpness, so names stay readable.
-export function useRetroMap(start: { center: LngLat; zoom: number }) {
+export const CLASSIC_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+export const CLASSIC_BLUE = "#1a73e8";
+
+export type MapView = { center: LngLat; zoom: number };
+
+// Two looks share one hook:
+//  - classic: a normal, clean street map with a blue route line, like any maps app;
+//  - retro: two stacked maps that move together. The art map renders at 1/CHUNK resolution and is
+//    scaled up without smoothing (chunky pixels); the label map draws only text, at full
+//    sharpness, so names stay readable.
+// Switching look rebuilds the map in the same place.
+export function useAppMap(theme: Theme, start: MapView) {
   const artHost = useRef<HTMLDivElement>(null);
   const labelHost = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<MLMap | null>(null);
+  const view = useRef<MapView>(start);
 
   useEffect(() => {
     if (!artHost.current || !labelHost.current) return;
-    const style = retroStyle();
+    const retro = theme === "retro";
+    const style = retro ? retroStyle() : null;
 
     const art = new maplibregl.Map({
       container: artHost.current,
-      style: { ...style, layers: style.layers.filter((l) => !LABEL_LAYERS.has(l.id)) },
-      center: start.center,
-      zoom: start.zoom,
-      pixelRatio: 1 / CHUNK,
+      style: style
+        ? { ...style, layers: style.layers.filter((l) => !LABEL_LAYERS.has(l.id)) }
+        : CLASSIC_STYLE,
+      center: view.current.center,
+      zoom: view.current.zoom,
+      ...(retro ? { pixelRatio: 1 / CHUNK } : {}),
       attributionControl: false,
       dragRotate: false,
       pitchWithRotate: false,
       maxPitch: 0,
     });
     art.touchZoomRotate.disableRotation();
-
-    const labels = new maplibregl.Map({
-      container: labelHost.current,
-      style: {
-        ...style,
-        layers: [
-          { id: "clear", type: "background", paint: { "background-opacity": 0 } },
-          ...style.layers.filter((l) => LABEL_LAYERS.has(l.id)),
-        ],
-      },
-      center: start.center,
-      zoom: start.zoom,
-      interactive: false,
-      attributionControl: false,
+    art.on("moveend", () => {
+      const c = art.getCenter();
+      view.current = { center: [c.lng, c.lat], zoom: art.getZoom() };
     });
 
-    const sync = () => labels.jumpTo({ center: art.getCenter(), zoom: art.getZoom() });
-    art.on("move", sync);
+    let labels: maplibregl.Map | null = null;
+    if (style) {
+      labels = new maplibregl.Map({
+        container: labelHost.current,
+        style: {
+          ...style,
+          layers: [
+            { id: "clear", type: "background", paint: { "background-opacity": 0 } },
+            ...style.layers.filter((l) => LABEL_LAYERS.has(l.id)),
+          ],
+        },
+        center: view.current.center,
+        zoom: view.current.zoom,
+        interactive: false,
+        attributionControl: false,
+      });
+      const shadow = labels;
+      art.on("move", () => shadow.jumpTo({ center: art.getCenter(), zoom: art.getZoom() }));
+    }
 
     art.on("load", () => {
       art.addSource("route", { type: "geojson", data: line([]) });
-      art.addLayer({
-        id: "route-glow",
-        type: "line",
-        source: "route",
-        layout: { "line-join": "miter", "line-cap": "square" },
-        paint: { "line-color": PULSE[0].glow, "line-width": PULSE[0].width, "line-opacity": 0.75 },
-      });
-      art.addLayer({
-        id: "route-edge",
-        type: "line",
-        source: "route",
-        layout: { "line-join": "miter", "line-cap": "square" },
-        paint: { "line-color": PALETTE.ink, "line-width": 13 },
-      });
-      art.addLayer({
-        id: "route-fill",
-        type: "line",
-        source: "route",
-        layout: { "line-join": "miter", "line-cap": "square" },
-        paint: { "line-color": PULSE[0].fill, "line-width": 8 },
-      });
-      art.addLayer({
-        id: "route-dash",
-        type: "line",
-        source: "route",
-        layout: { "line-join": "miter" },
-        paint: { "line-color": "#fff6df", "line-width": 4, "line-dasharray": MARCH[0] },
-      });
+      if (retro) {
+        art.addLayer({
+          id: "route-glow",
+          type: "line",
+          source: "route",
+          layout: { "line-join": "miter", "line-cap": "square" },
+          paint: { "line-color": PULSE[0].glow, "line-width": PULSE[0].width, "line-opacity": 0.75 },
+        });
+        art.addLayer({
+          id: "route-edge",
+          type: "line",
+          source: "route",
+          layout: { "line-join": "miter", "line-cap": "square" },
+          paint: { "line-color": PALETTE.ink, "line-width": 13 },
+        });
+        art.addLayer({
+          id: "route-fill",
+          type: "line",
+          source: "route",
+          layout: { "line-join": "miter", "line-cap": "square" },
+          paint: { "line-color": PULSE[0].fill, "line-width": 8 },
+        });
+        art.addLayer({
+          id: "route-dash",
+          type: "line",
+          source: "route",
+          layout: { "line-join": "miter" },
+          paint: { "line-color": "#fff6df", "line-width": 4, "line-dasharray": MARCH[0] },
+        });
+      } else {
+        const width = ["interpolate", ["linear"], ["zoom"], 8, 4, 14, 8, 18, 14] as unknown as number;
+        art.addLayer({
+          id: "route-casing",
+          type: "line",
+          source: "route",
+          layout: { "line-join": "round", "line-cap": "round" },
+          paint: { "line-color": "#0b4aa8", "line-width": ["+", width, 4] as unknown as number },
+        });
+        art.addLayer({
+          id: "route-line",
+          type: "line",
+          source: "route",
+          layout: { "line-join": "round", "line-cap": "round" },
+          paint: { "line-color": CLASSIC_BLUE, "line-width": width },
+        });
+      }
       setMap(art);
     });
 
-    const stopPulse = animateRoute(art);
+    const stopPulse = retro ? animateRoute(art) : () => {};
 
     return () => {
       stopPulse();
       art.remove();
-      labels.remove();
+      labels?.remove();
       setMap(null);
     };
-    // The map is created once; later center/zoom changes go through the map itself.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [theme]);
 
   return { artHost, labelHost, map };
 }

@@ -3,6 +3,8 @@ import type { Map as MLMap, Marker } from "maplibre-gl";
 import { onFrame } from "../pixel/anim";
 import { buildingFrameUrl } from "../pixel/buildings";
 import type { LngLat } from "../lib/geo";
+import type { Theme } from "../lib/settings";
+import { CLASSIC_COLORS, PIN_SIZE, pinUrl } from "../pixel/classicMarkers";
 
 export type MarkerPlace = { id: string; name: string; building: string; at: LngLat };
 
@@ -27,13 +29,15 @@ export class PlaceMarkers {
   private selectedId: string | null = null;
   private map: MLMap;
   private onSelect: (id: string) => void;
+  private theme: Theme;
 
-  constructor(map: MLMap, onSelect: (id: string) => void) {
+  constructor(map: MLMap, onSelect: (id: string) => void, theme: Theme) {
     this.map = map;
     this.onSelect = onSelect;
+    this.theme = theme;
     this.stopClock = onFrame((f) => {
       this.frame = f;
-      this.paint();
+      if (this.theme === "retro") this.paint();
     }, 3);
     map.on("zoom", this.onZoom);
     this.onZoom();
@@ -50,16 +54,22 @@ export class PlaceMarkers {
 
   private paint() {
     for (const [id, item] of this.items) {
-      item.img.src = buildingFrameUrl(item.building, this.frame);
-      item.img.style.width = `${24 * this.scale}px`;
-      item.img.style.height = `${24 * this.scale}px`;
+      if (this.theme === "classic") {
+        item.img.src = pinUrl(id === PREVIEW ? CLASSIC_COLORS.drop : CLASSIC_COLORS.saved);
+        item.img.style.width = `${PIN_SIZE.w}px`;
+        item.img.style.height = `${PIN_SIZE.h}px`;
+      } else {
+        item.img.src = buildingFrameUrl(item.building, this.frame);
+        item.img.style.width = `${24 * this.scale}px`;
+        item.img.style.height = `${24 * this.scale}px`;
+      }
       item.label.style.display = this.labels || id === PREVIEW ? "" : "none";
     }
   }
 
   private make(id: string, place: { name: string; building: string; at: LngLat }): Item {
     const el = document.createElement("div");
-    el.className = `place-marker${id === PREVIEW ? " preview" : ""}`;
+    el.className = `place-marker${id === PREVIEW ? " preview" : ""}${this.theme === "classic" ? " classic" : ""}`;
     const img = document.createElement("img");
     img.className = "sprite";
     img.alt = "";
