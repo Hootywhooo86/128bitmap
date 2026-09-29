@@ -10,7 +10,7 @@ A from → to map app drawn in chunky retro pixel art. Real streets, real direct
 - **From / To search** with suggestions as you type (near where the map is looking).
 - **Tap anywhere on the map** to drop a pin, then pick **FROM HERE** or **TO HERE**.
 - **Use my location** in either box, plus a "find me" button.
-- **Driving route** drawn as a pixel road line, with trip time and distance.
+- **Driving route** drawn as a pixel road line that pulses like an old-school game path, with marching dashes heading to the finish flag, plus trip time and distance.
 - **Turn-by-turn steps**: tap one to zoom to that turn.
 - Swap button, and your last trip is remembered on the device.
 - Works on phones and laptops.

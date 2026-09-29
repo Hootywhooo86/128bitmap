@@ -11,7 +11,7 @@ import {
   type Place,
   type Route,
 } from "./lib/geo";
-import { emptyLine, useRetroMap } from "./map/useRetroMap";
+import { setRouteLine, useRetroMap } from "./map/useRetroMap";
 import { DROP_PIN, GOAL_FLAG, START_FLAG, YOU_DOT, spriteToDataUrl, type Sprite } from "./pixel/sprites";
 
 const TRIP_KEY = "128bitmaps.trip";
@@ -86,12 +86,11 @@ export default function App() {
   // Fetch a road route whenever both ends are set.
   useEffect(() => {
     if (!map) return;
-    const source = map.getSource("route") as maplibregl.GeoJSONSource | undefined;
     const { from, to } = trip;
     if (!from || !to) {
       setRoute(null);
       setError(null);
-      source?.setData(emptyLine());
+      setRouteLine(map, null);
       if (from || to) map.flyTo({ center: (from ?? to)!.at, zoom: Math.max(map.getZoom(), 13) });
       return;
     }
@@ -101,7 +100,7 @@ export default function App() {
     getRoute(from.at, to.at, ctrl.signal)
       .then((next) => {
         setRoute(next);
-        source?.setData({ type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: next.line } });
+        setRouteLine(map, next.line);
         const bounds = next.line.reduce(
           (b, p) => b.extend(p),
           new maplibregl.LngLatBounds(next.line[0], next.line[0]),
@@ -117,7 +116,7 @@ export default function App() {
       .catch((err: Error) => {
         if (ctrl.signal.aborted) return;
         setRoute(null);
-        source?.setData(emptyLine());
+        setRouteLine(map, null);
         setError(err.message || "Couldn't find a route.");
       })
       .finally(() => {
