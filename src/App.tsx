@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { Marker } from "maplibre-gl";
 import { PlaceInput } from "./components/PlaceInput";
+import { MenuSheet, PlaceEditor, type Draft, type MenuTab } from "./components/Sheets";
+import { SpriteImg } from "./components/SpriteImg";
 import {
   formatDistance,
   formatDuration,
@@ -11,13 +13,33 @@ import {
   type Place,
   type Route,
 } from "./lib/geo";
+import { currentPosition, saveBackupFile } from "./lib/platform";
+import {
+  loadCar,
+  loadPlaces,
+  makeBackup,
+  mergePlaces,
+  newId,
+  readBackup,
+  samePlace,
+  saveCar,
+  savePlaces,
+  savedToPlace,
+  type SavedPlace,
+} from "./lib/store";
+import { Driver } from "./map/drive";
+import { PlaceMarkers } from "./map/placeMarkers";
 import { setRouteLine, useRetroMap } from "./map/useRetroMap";
+import { getBuilding, suggestBuilding } from "./pixel/buildings";
 import { DROP_PIN, GOAL_FLAG, START_FLAG, YOU_DOT, spriteToDataUrl, type Sprite } from "./pixel/sprites";
 
 const TRIP_KEY = "128bitmaps.trip";
 const DEFAULT_VIEW = { center: [-113.4938, 53.5461] as LngLat, zoom: 11 };
 
 type Trip = { from: Place | null; to: Place | null };
+type Sheet = { kind: "menu"; tab: MenuTab } | { kind: "editor"; draft: Draft } | null;
+type Card = { kind: "pin"; place: Place } | { kind: "saved"; id: string } | null;
+type DriveState = { status: "idle" | "driving" | "arrived"; progress: number; left: number };
 
 function loadTrip(): Trip {
   try {
@@ -53,18 +75,44 @@ function routePadding(panel: HTMLElement | null) {
   return pad;
 }
 
+// Where the sheet sits (mirrors the CSS), so a place being edited is panned into the part of
+// the map you can still see: above a bottom sheet, beside a side column.
+function sheetOffset(): [number, number] {
+  const w = window.innerWidth;
+  const h = window.innerHeight;
+  if (h <= 520 && w > h) return [Math.min(430, w * 0.56) / 2, 0];
+  if (w < 760) return [0, -Math.min(h * 0.52, 460) / 2];
+  return [-206, 0];
+}
+
+const today = () => new Date().toISOString().slice(0, 10);
+
 export default function App() {
   const [trip, setTrip] = useState<Trip>(loadTrip);
-  const [firstView] = useState(() => (trip.from ? { center: trip.from.at, zoom: 13 } : DEFAULT_VIEW));
+  const [places, setPlaces] = useState<SavedPlace[]>(loadPlaces);
+  const [car, setCar] = useState<string>(loadCar);
+  const [firstView] = useState(() => {
+    const at = trip.from?.at ?? places[0]?.at;
+    return at ? { center: at, zoom: 13 } : DEFAULT_VIEW;
+  });
   const { artHost, labelHost, map } = useRetroMap(firstView);
   const [route, setRoute] = useState<Route | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSteps, setShowSteps] = useState(false);
-  const [dropped, setDropped] = useState<Place | null>(null);
+  const [card, setCard] = useState<Card>(null);
+  const [sheet, setSheet] = useState<Sheet>(null);
+  const [drive, setDrive] = useState<DriveState>({ status: "idle", progress: 0, left: 0 });
   const [you, setYou] = useState<LngLat | null>(null);
   const panelRef = useRef<HTMLElement>(null);
   const markers = useRef<{ from?: Marker; to?: Marker; you?: Marker; drop?: Marker }>({});
+  const placeMarkers = useRef<PlaceMarkers | null>(null);
+  const driver = useRef<Driver | null>(null);
+  const lookup = useRef(0);
+  const live = useRef({ sheet, drive });
+  useEffect(() => {
+    live.current = { sheet, drive };
+  });
 
   const icons = useMemo(
     () => ({ start: spriteToDataUrl(START_FLAG, 2), goal: spriteToDataUrl(GOAL_FLAG, 2) }),
@@ -85,6 +133,45 @@ export default function App() {
     }
   }, [trip]);
 
+  useEffect(() => savePlaces(places), [places]);
+  useEffect(() => saveCar(car), [car]);
+
+  const openSaved = useCallback(
+    (id: string) => {
+      setSheet(null);
+      setCard({ kind: "saved", id });
+    },
+    [],
+  );
+
+  // Saved places live on the map as animated pixel buildings.
+  useEffect(() => {
+    if (!map) return;
+    const layer = new PlaceMarkers(map, (id) => openSaved(id));
+    placeMarkers.current = layer;
+    layer.sync(places);
+    return () => {
+      layer.destroy();
+      placeMarkers.current = null;
+    };
+    // The layer is created once per map; places are pushed in by the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, openSaved]);
+
+  useEffect(() => {
+    placeMarkers.current?.sync(places);
+  }, [places, map]);
+
+  useEffect(() => {
+    placeMarkers.current?.select(card?.kind === "saved" ? card.id : null);
+  }, [card, map]);
+
+  // While you pick a building, the map shows it live where the place will go.
+  const draft = sheet?.kind === "editor" ? sheet.draft : null;
+  useEffect(() => {
+    placeMarkers.current?.setPreview(draft ? { name: draft.name, building: draft.building, at: draft.at } : null);
+  }, [draft, map]);
+
   // Keep the flag markers in step with the chosen places.
   useEffect(() => {
     if (!map) return;
@@ -100,9 +187,25 @@ export default function App() {
     }
   }, [map, trip]);
 
+  // The car that drives your route.
+  useEffect(() => {
+    if (!map) return;
+    const d = new Driver(map, {
+      onProgress: (progress, left) => setDrive({ status: "driving", progress, left }),
+      onArrive: () => setDrive({ status: "arrived", progress: 1, left: 0 }),
+    });
+    driver.current = d;
+    return () => {
+      d.stop();
+      driver.current = null;
+    };
+  }, [map]);
+
   // Fetch a road route whenever both ends are set.
   useEffect(() => {
     if (!map) return;
+    driver.current?.stop();
+    setDrive({ status: "idle", progress: 0, left: 0 });
     const { from, to } = trip;
     if (!from || !to) {
       setRoute(null);
@@ -136,15 +239,33 @@ export default function App() {
     return () => ctrl.abort();
   }, [map, trip]);
 
-  // Tap the map to drop a pin you can go from or to.
+  const closePin = useCallback(() => {
+    lookup.current++;
+    markers.current.drop?.remove();
+    markers.current.drop = undefined;
+  }, []);
+
+  // Tap the map: drop a pin, or (while editing) move the place, or (menu open) just close the menu.
   useEffect(() => {
     if (!map) return;
     const onClick = async (e: maplibregl.MapMouseEvent) => {
       const at: LngLat = [e.lngLat.lng, e.lngLat.lat];
+      const { sheet: open, drive: driving } = live.current;
+      if (driving.status === "driving") return;
+      if (open?.kind === "editor") {
+        setSheet({ kind: "editor", draft: { ...open.draft, at } });
+        return;
+      }
+      if (open?.kind === "menu") {
+        setSheet(null);
+        return;
+      }
+      const token = ++lookup.current;
       markers.current.drop?.remove();
       markers.current.drop = spriteMarker(DROP_PIN, "bottom").setLngLat(at).addTo(map);
-      setDropped({ label: "Dropped pin", detail: "Looking up…", at });
-      setDropped(await reverseLookup(at));
+      setCard({ kind: "pin", place: { label: "Dropped pin", detail: "Looking up…", at } });
+      const place = await reverseLookup(at);
+      if (token === lookup.current) setCard({ kind: "pin", place });
     };
     map.on("click", onClick);
     return () => {
@@ -153,31 +274,22 @@ export default function App() {
   }, [map]);
 
   useEffect(() => {
-    if (!dropped) {
-      markers.current.drop?.remove();
-      markers.current.drop = undefined;
-    }
-  }, [dropped]);
+    if (card?.kind !== "pin") closePin();
+  }, [card, closePin]);
 
   const locate = useCallback(
-    (then?: (place: Place) => void) => {
-      if (!navigator.geolocation) {
-        setError("This device can't share its location.");
-        return;
+    async (then?: (place: Place) => void) => {
+      try {
+        const at = await currentPosition();
+        setYou(at);
+        map?.flyTo({ center: at, zoom: 15 });
+        if (then) {
+          const place = await reverseLookup(at);
+          then({ ...place, label: "My location", detail: place.label });
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Couldn't find your location.");
       }
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          const at: LngLat = [pos.coords.longitude, pos.coords.latitude];
-          setYou(at);
-          map?.flyTo({ center: at, zoom: 15 });
-          if (then) {
-            const place = await reverseLookup(at);
-            then({ ...place, label: "My location", detail: place.label });
-          }
-        },
-        () => setError("Location is blocked. Allow it in your browser settings."),
-        { enableHighAccuracy: true, timeout: 10000 },
-      );
     },
     [map],
   );
@@ -188,10 +300,111 @@ export default function App() {
     if (you) markers.current.you = spriteMarker(YOU_DOT, "center").setLngLat(you).addTo(map);
   }, [map, you]);
 
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSheet(null);
+        setCard(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   const setEnd = (key: keyof Trip) => (place: Place | null) => setTrip((t) => ({ ...t, [key]: place }));
 
+  // ----- saved places -----
+
+  const openEditor = (next: Draft) => {
+    setCard(null);
+    setSheet({ kind: "editor", draft: next });
+    map?.easeTo({ center: next.at, zoom: Math.max(map.getZoom(), 15), offset: sheetOffset(), duration: 500 });
+  };
+
+  const startNewPlace = (place: Place) => {
+    const name = place.label === "Dropped pin" ? "" : place.label;
+    openEditor({ name, building: suggestBuilding(place.label), at: place.at });
+  };
+
+  const editSaved = (id: string) => {
+    const s = places.find((p) => p.id === id);
+    if (s) openEditor({ id: s.id, name: s.name, building: s.building, at: s.at });
+  };
+
+  const saveDraft = () => {
+    if (sheet?.kind !== "editor") return;
+    const d = sheet.draft;
+    const name = d.name.trim();
+    if (!name) return;
+    const id = d.id ?? newId();
+    const next: SavedPlace = { id, name, building: d.building, at: d.at };
+    setPlaces((all) => (all.some((p) => p.id === id) ? all.map((p) => (p.id === id ? next : p)) : [...all, next]));
+    // Keep any trip end that pointed at this place in step with its new name and building.
+    setTrip((t) => ({
+      from: t.from && samePlace(t.from.at, d.at) ? savedToPlace(next) : t.from,
+      to: t.to && samePlace(t.to.at, d.at) ? savedToPlace(next) : t.to,
+    }));
+    setSheet(null);
+    setCard({ kind: "saved", id });
+    // The sheet had pushed the map aside; put the new place back in the middle of the view.
+    map?.easeTo({ center: d.at, offset: [0, 0], duration: 400 });
+  };
+
+  const deleteDraft = () => {
+    if (sheet?.kind !== "editor" || !sheet.draft.id) return;
+    const id = sheet.draft.id;
+    setPlaces((all) => all.filter((p) => p.id !== id));
+    setSheet(null);
+    setCard(null);
+  };
+
+  const placeById = (id: string) => places.find((p) => p.id === id);
+
+  const applyPlaceTo = (key: keyof Trip, s: SavedPlace) => {
+    setEnd(key)(savedToPlace(s));
+    setSheet(null);
+    setCard(null);
+  };
+
+  const doBackup = async () => {
+    await saveBackupFile(makeBackup(places, car), `128bitmaps-backup-${today()}.json`);
+    return `Backup ready: ${places.length} ${places.length === 1 ? "place" : "places"}.`;
+  };
+
+  const doRestore = async (file: File) => {
+    if (file.size > 5_000_000) throw new Error("That file is too big to be a backup.");
+    const restored = readBackup(await file.text());
+    setPlaces((all) => mergePlaces(all, restored.places));
+    if (restored.car) setCar(restored.car);
+    const skipped = restored.skipped ? ` (${restored.skipped} couldn't be read)` : "";
+    return `Restored ${restored.places.length} ${restored.places.length === 1 ? "place" : "places"}${skipped}.`;
+  };
+
+  const startDrive = () => {
+    if (!route) return;
+    setCard(null);
+    setSheet(null);
+    setDrive({ status: "driving", progress: 0, left: route.distance });
+    driver.current?.start(route.line, car);
+  };
+
+  const endDrive = () => {
+    driver.current?.stop();
+    setDrive({ status: "idle", progress: 0, left: 0 });
+  };
+
+  const pickCar = (id: string) => {
+    setCar(id);
+    driver.current?.setCar(id);
+  };
+
+  const cardSaved = card?.kind === "saved" ? placeById(card.id) : undefined;
+  const cardPlace = card?.kind === "pin" ? card.place : cardSaved ? savedToPlace(cardSaved) : null;
+  const driving = drive.status !== "idle";
+  const canSaveEnd = (p: Place) => !places.some((s) => samePlace(s.at, p.at));
+
   return (
-    <div className="app">
+    <div className={`app${sheet ? " sheet-open" : ""}${driving ? " driving" : ""}`}>
       <div className="map-stack">
         <div ref={artHost} className="map art-map" />
         <div ref={labelHost} className="map label-map" aria-hidden />
@@ -201,6 +414,13 @@ export default function App() {
         <header className="brand">
           <span className="logo">128BITMAPS</span>
           {!map && <span className="loading-text">LOADING…</span>}
+          <button
+            className="pixel-btn menu-btn"
+            onClick={() => setSheet({ kind: "menu", tab: "places" })}
+            aria-label="Open menu"
+          >
+            MENU
+          </button>
         </header>
         <div className="ends">
           <PlaceInput
@@ -208,8 +428,11 @@ export default function App() {
             placeholder="From where?"
             value={trip.from}
             near={near}
+            saved={places}
+            canSave={!!trip.from && canSaveEnd(trip.from)}
             onPick={setEnd("from")}
             onClear={() => setEnd("from")(null)}
+            onSave={startNewPlace}
             onUseLocation={() => locate(setEnd("from"))}
           />
           <PlaceInput
@@ -217,8 +440,11 @@ export default function App() {
             placeholder="To where?"
             value={trip.to}
             near={near}
+            saved={places}
+            canSave={!!trip.to && canSaveEnd(trip.to)}
             onPick={setEnd("to")}
             onClear={() => setEnd("to")(null)}
+            onSave={startNewPlace}
             onUseLocation={() => locate(setEnd("to"))}
           />
           <button
@@ -240,9 +466,14 @@ export default function App() {
               <span className="big">{formatDuration(route.duration)}</span>
               <span className="dim"> · {formatDistance(route.distance)}</span>
             </div>
-            <button className="pixel-btn" onClick={() => setShowSteps((s) => !s)}>
-              {showSteps ? "HIDE" : "STEPS"}
-            </button>
+            <div className="summary-actions">
+              <button className="pixel-btn go-from" onClick={startDrive} aria-label="Drive the route">
+                GO ▶
+              </button>
+              <button className="pixel-btn" onClick={() => setShowSteps((s) => !s)}>
+                {showSteps ? "HIDE" : "STEPS"}
+              </button>
+            </div>
           </div>
         )}
 
@@ -261,36 +492,117 @@ export default function App() {
         )}
       </section>
 
-      {dropped && (
+      {driving && (
+        <section className="panel drive-bar" aria-live="polite">
+          {drive.status === "driving" ? (
+            <>
+              <button className="pixel-btn go-to" onClick={endDrive}>
+                ■ STOP
+              </button>
+              <div className="meter" role="progressbar" aria-valuenow={Math.round(drive.progress * 100)} aria-valuemin={0} aria-valuemax={100}>
+                {Array.from({ length: 14 }, (_, i) => (
+                  <span key={i} className={i < Math.round(drive.progress * 14) ? "seg on" : "seg"} />
+                ))}
+              </div>
+              <span className="left">{formatDistance(drive.left)}</span>
+            </>
+          ) : (
+            <>
+              <span className="arrived">★ YOU MADE IT!</span>
+              <button className="pixel-btn go-from" onClick={startDrive}>
+                AGAIN
+              </button>
+              <button className="pixel-btn" onClick={endDrive}>
+                DONE
+              </button>
+            </>
+          )}
+        </section>
+      )}
+
+      {cardPlace && !sheet && !driving && (
         <section className="panel drop-panel">
           <div className="drop-info">
-            <span className="hit-label">{dropped.label}</span>
-            <span className="hit-detail">{dropped.detail}</span>
+            {cardSaved && (
+              <span className="card-icon">
+                <SpriteImg kind="building" id={cardSaved.building} scale={2} />
+              </span>
+            )}
+            <span className="card-text">
+              <span className="hit-label">{cardPlace.label}</span>
+              <span className="hit-detail">{cardSaved ? getBuilding(cardSaved.building).name : cardPlace.detail}</span>
+            </span>
           </div>
           <div className="drop-actions">
             <button
               className="pixel-btn go-from"
               onClick={() => {
-                setEnd("from")(dropped);
-                setDropped(null);
+                setEnd("from")(cardPlace);
+                setCard(null);
               }}
             >
-              FROM HERE
+              FROM
             </button>
             <button
               className="pixel-btn go-to"
               onClick={() => {
-                setEnd("to")(dropped);
-                setDropped(null);
+                setEnd("to")(cardPlace);
+                setCard(null);
               }}
             >
-              TO HERE
+              TO
             </button>
-            <button className="pixel-btn ghost" aria-label="Close" onClick={() => setDropped(null)}>
+            {cardSaved ? (
+              <button className="pixel-btn" onClick={() => editSaved(cardSaved.id)}>
+                EDIT
+              </button>
+            ) : (
+              <button className="pixel-btn" onClick={() => startNewPlace(cardPlace)}>
+                ★ SAVE
+              </button>
+            )}
+            <button className="pixel-btn ghost" aria-label="Close" onClick={() => setCard(null)}>
               ×
             </button>
           </div>
         </section>
+      )}
+
+      {sheet?.kind === "menu" && (
+        <MenuSheet
+          tab={sheet.tab}
+          onTab={(tab) => setSheet({ kind: "menu", tab })}
+          onClose={() => setSheet(null)}
+          places={places}
+          onOpenPlace={(id) => {
+            const s = placeById(id);
+            if (s) map?.flyTo({ center: s.at, zoom: Math.max(map.getZoom(), 15) });
+            openSaved(id);
+          }}
+          onFrom={(id) => {
+            const s = placeById(id);
+            if (s) applyPlaceTo("from", s);
+          }}
+          onTo={(id) => {
+            const s = placeById(id);
+            if (s) applyPlaceTo("to", s);
+          }}
+          onEdit={editSaved}
+          car={car}
+          onCar={pickCar}
+          onBackup={doBackup}
+          onRestore={doRestore}
+        />
+      )}
+
+      {sheet?.kind === "editor" && (
+        <PlaceEditor
+          draft={sheet.draft}
+          onChange={(d) => setSheet({ kind: "editor", draft: d })}
+          onSave={saveDraft}
+          onDelete={sheet.draft.id ? deleteDraft : undefined}
+          onCancel={() => setSheet(null)}
+        />
       )}
 
       <div className="map-controls">

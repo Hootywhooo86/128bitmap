@@ -4,6 +4,8 @@ export type Place = {
   label: string;
   detail: string;
   at: LngLat;
+  // Set when this is one of your saved places, so it can show its pixel building.
+  building?: string;
 };
 
 export type Step = {

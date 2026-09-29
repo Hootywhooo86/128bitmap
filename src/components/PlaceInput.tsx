@@ -1,17 +1,35 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { searchPlaces, type LngLat, type Place } from "../lib/geo";
+import { savedToPlace, type SavedPlace } from "../lib/store";
+import { SpriteImg } from "./SpriteImg";
 
 type Props = {
   icon: string;
   placeholder: string;
   value: Place | null;
   near: () => LngLat | null;
+  saved: SavedPlace[];
+  canSave: boolean;
   onPick: (place: Place) => void;
   onClear: () => void;
-  onUseLocation?: () => void;
+  onSave: (place: Place) => void;
+  onUseLocation: () => void;
 };
 
-export function PlaceInput({ icon, placeholder, value, near, onPick, onClear, onUseLocation }: Props) {
+type Item = { key: string; kind: "me" } | { key: string; kind: "place"; place: Place; isSaved: boolean };
+
+export function PlaceInput({
+  icon,
+  placeholder,
+  value,
+  near,
+  saved,
+  canSave,
+  onPick,
+  onClear,
+  onSave,
+  onUseLocation,
+}: Props) {
   const [text, setText] = useState(value?.label ?? "");
   const [open, setOpen] = useState(false);
   const [hits, setHits] = useState<Place[]>([]);
@@ -27,9 +45,11 @@ export function PlaceInput({ icon, placeholder, value, near, onPick, onClear, on
     setTyped(false);
   }
 
+  const query = text.trim();
+  const searching = typed && query.length >= 3;
+
   useEffect(() => {
-    const query = text.trim();
-    if (!typed || query.length < 3) return;
+    if (!searching) return;
     const ctrl = new AbortController();
     const timer = setTimeout(async () => {
       setBusy(true);
@@ -46,19 +66,37 @@ export function PlaceInput({ icon, placeholder, value, near, onPick, onClear, on
       clearTimeout(timer);
       ctrl.abort();
     };
-  }, [text, typed, near]);
+  }, [query, searching, near]);
 
-  const showHits = typed && text.trim().length >= 3;
+  const items = useMemo<Item[]>(() => {
+    const out: Item[] = [];
+    if (!typed) out.push({ key: "me", kind: "me" });
+    const mine = typed
+      ? saved.filter((s) => s.name.toLowerCase().includes(query.toLowerCase())).slice(0, 4)
+      : saved;
+    for (const s of mine) out.push({ key: `s${s.id}`, kind: "place", place: savedToPlace(s), isSaved: true });
+    if (searching) hits.forEach((h, i) => out.push({ key: `h${i}${h.at.join()}`, kind: "place", place: h, isSaved: false }));
+    return out;
+  }, [typed, saved, query, searching, hits]);
 
-  const pick = (place: Place) => {
+  const choose = (item: Item) => {
     setOpen(false);
     setHits([]);
-    onPick(place);
+    if (item.kind === "me") onUseLocation();
+    else onPick(item.place);
   };
+
+  const clampedActive = Math.min(active, Math.max(items.length - 1, 0));
 
   return (
     <div className="place-input">
-      <img className="place-icon" src={icon} alt="" />
+      {value?.building ? (
+        <span className="place-icon place-icon-building">
+          <SpriteImg kind="building" id={value.building} scale={1} animated={false} />
+        </span>
+      ) : (
+        <img className="place-icon" src={icon} alt="" />
+      )}
       <input
         value={text}
         placeholder={placeholder}
@@ -71,12 +109,17 @@ export function PlaceInput({ icon, placeholder, value, near, onPick, onClear, on
           setOpen(true);
         }}
         onKeyDown={(e) => {
-          if (e.key === "ArrowDown") setActive((i) => Math.min(i + 1, hits.length - 1));
-          else if (e.key === "ArrowUp") setActive((i) => Math.max(i - 1, 0));
-          else if (e.key === "Enter" && hits[active]) pick(hits[active]);
+          if (e.key === "ArrowDown") setActive(Math.min(clampedActive + 1, items.length - 1));
+          else if (e.key === "ArrowUp") setActive(Math.max(clampedActive - 1, 0));
+          else if (e.key === "Enter" && items[clampedActive]) choose(items[clampedActive]);
           else if (e.key === "Escape") setOpen(false);
         }}
       />
+      {value && canSave && (
+        <button className="mini-btn save-star" aria-label="Save this place" title="Save this place" onClick={() => onSave(value)}>
+          ★
+        </button>
+      )}
       {text && (
         <button
           className="clear"
@@ -90,34 +133,32 @@ export function PlaceInput({ icon, placeholder, value, near, onPick, onClear, on
           ×
         </button>
       )}
-      {open && ((showHits && hits.length > 0) || busy || onUseLocation) && (
+      {open && (items.length > 0 || (busy && searching)) && (
         <ul className="dropdown" role="listbox">
-          {onUseLocation && !typed && (
-            <li>
+          {items.map((item, i) => (
+            <li key={item.key}>
               <button
+                className={i === clampedActive ? "active" : ""}
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  setOpen(false);
-                  onUseLocation();
-                }}
+                onClick={() => choose(item)}
               >
-                <span className="hit-label">◎ Use my location</span>
-              </button>
-            </li>
-          )}
-          {busy && showHits && hits.length === 0 && <li className="dim">Searching…</li>}
-          {showHits && hits.map((hit, i) => (
-            <li key={`${hit.at.join()}-${i}`}>
-              <button
-                className={i === active ? "active" : ""}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => pick(hit)}
-              >
-                <span className="hit-label">{hit.label}</span>
-                {hit.detail && <span className="hit-detail">{hit.detail}</span>}
+                {item.kind === "me" ? (
+                  <span className="hit-label">◎ Use my location</span>
+                ) : (
+                  <span className="hit-row">
+                    {item.isSaved && item.place.building && (
+                      <SpriteImg kind="building" id={item.place.building} scale={1} animated={false} />
+                    )}
+                    <span className="hit-text">
+                      <span className="hit-label">{item.place.label}</span>
+                      {item.place.detail && <span className="hit-detail">{item.place.detail}</span>}
+                    </span>
+                  </span>
+                )}
               </button>
             </li>
           ))}
+          {busy && searching && hits.length === 0 && <li className="dim pad">Searching…</li>}
         </ul>
       )}
     </div>
