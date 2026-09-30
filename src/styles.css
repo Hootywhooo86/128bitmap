@@ -1955,3 +1955,13 @@ button {
     height: auto;
   }
 }
+
+.theme-classic .map-controls .pixel-btn.on {
+  color: #fff;
+  background: #1a73e8;
+}
+
+.map-controls .pixel-btn svg {
+  display: block;
+  margin: auto;
+}

@@ -7,12 +7,18 @@ import type { LngLat } from "./geo";
 
 export const isNative = () => Capacitor.isNativePlatform();
 
-export async function currentPosition(): Promise<LngLat> {
+// A quick one-off position. `fast` accepts a recent, rougher fix (good for centring the map);
+// turn-by-turn uses watchPosition, which asks for the best GPS.
+export async function currentPosition(fast = true): Promise<LngLat> {
   if (isNative()) {
     const { Geolocation } = await import("@capacitor/geolocation");
     const perm = await Geolocation.requestPermissions();
     if (perm.location === "denied") throw new Error("Location is off for this app. Turn it on in Settings.");
-    const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: true, timeout: 10000 });
+    const pos = await Geolocation.getCurrentPosition({
+      enableHighAccuracy: !fast,
+      timeout: 10000,
+      maximumAge: fast ? 120000 : 0,
+    });
     return [pos.coords.longitude, pos.coords.latitude];
   }
   if (!navigator.geolocation) throw new Error("This device can't share its location.");
@@ -20,7 +26,7 @@ export async function currentPosition(): Promise<LngLat> {
     navigator.geolocation.getCurrentPosition(
       (pos) => resolve([pos.coords.longitude, pos.coords.latitude]),
       () => reject(new Error("Location is blocked. Allow it in your browser settings.")),
-      { enableHighAccuracy: true, timeout: 10000 },
+      { enableHighAccuracy: !fast, timeout: 10000, maximumAge: fast ? 120000 : 0 },
     );
   });
 }

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
-import type { Map as MLMap } from "maplibre-gl";
+import type { Map as MLMap, StyleSpecification } from "maplibre-gl";
 import { PALETTE, retroStyle } from "./retroStyle";
 import type { Feature, LineString } from "geojson";
 import type { LngLat } from "../lib/geo";
 import type { Theme } from "../lib/settings";
+import classicJson from "./classicStyle.json";
 import workerUrl from "./maplibre-worker?worker&url";
 
 maplibregl.setWorkerUrl(workerUrl);
@@ -15,7 +16,29 @@ export const CHUNK = 3;
 
 const LABEL_LAYERS = new Set(["road-label", "water-label", "place-label"]);
 
-export const CLASSIC_STYLE = "https://tiles.openfreemap.org/styles/liberty";
+// The classic style, its icons and the common Latin fonts ship inside the app (see
+// scripts/make-classic-style.py), so the map doesn't wait on a chain of requests before it can draw.
+const appBase = () => new URL("./", document.baseURI).href;
+
+function classicStyle(): StyleSpecification {
+  const style = structuredClone(classicJson) as unknown as StyleSpecification;
+  style.sprite = `${appBase()}map/sprite/ofm`;
+  return style;
+}
+
+const BUNDLED_RANGES = new Set(["0-255", "256-511", "8192-8447"]);
+const BUNDLED_FONTS = new Set(["Noto-Sans-Regular", "Noto-Sans-Bold", "Noto-Sans-Italic"]);
+
+// Fonts we ship are read locally; other alphabets still come from the internet when needed.
+const transformRequest = (url: string, type?: string) => {
+  if (type !== "Glyphs") return undefined;
+  const m = url.match(/\/fonts\/([^/]+)\/(\d+-\d+)\.pbf/);
+  if (!m) return undefined;
+  const font = decodeURIComponent(m[1]).replace(/ /g, "-");
+  if (!BUNDLED_RANGES.has(m[2]) || !BUNDLED_FONTS.has(font)) return undefined;
+  return { url: `${appBase()}map/fonts/${font}/${m[2]}.pbf` };
+};
+
 export const CLASSIC_BLUE = "#1a73e8";
 
 export type MapView = { center: LngLat; zoom: number };
@@ -41,10 +64,13 @@ export function useAppMap(theme: Theme, start: MapView) {
       container: artHost.current,
       style: style
         ? { ...style, layers: style.layers.filter((l) => !LABEL_LAYERS.has(l.id)) }
-        : CLASSIC_STYLE,
+        : classicStyle(),
+      transformRequest,
       center: view.current.center,
       zoom: view.current.zoom,
-      ...(retro ? { pixelRatio: 1 / CHUNK } : {}),
+      // Phones can have 3x screens; drawing 2x is far lighter and still sharp.
+      pixelRatio: retro ? 1 / CHUNK : Math.min(window.devicePixelRatio || 1, 2),
+      fadeDuration: retro ? 300 : 120,
       attributionControl: false,
       dragRotate: false,
       pitchWithRotate: false,
@@ -71,6 +97,7 @@ export function useAppMap(theme: Theme, start: MapView) {
         zoom: view.current.zoom,
         interactive: false,
         attributionControl: false,
+        transformRequest,
       });
       const shadow = labels;
       art.on("move", () => shadow.jumpTo({ center: art.getCenter(), zoom: art.getZoom() }));
@@ -109,20 +136,29 @@ export function useAppMap(theme: Theme, start: MapView) {
         });
       } else {
         const width = ["interpolate", ["linear"], ["zoom"], 8, 4, 14, 8, 18, 14] as unknown as number;
-        art.addLayer({
-          id: "route-casing",
-          type: "line",
-          source: "route",
-          layout: { "line-join": "round", "line-cap": "round" },
-          paint: { "line-color": "#0b4aa8", "line-width": ["+", width, 4] as unknown as number },
-        });
-        art.addLayer({
-          id: "route-line",
-          type: "line",
-          source: "route",
-          layout: { "line-join": "round", "line-cap": "round" },
-          paint: { "line-color": CLASSIC_BLUE, "line-width": width },
-        });
+        const casing = ["interpolate", ["linear"], ["zoom"], 8, 7, 14, 12, 18, 19] as unknown as number;
+        // Under the labels and places, like a real maps app, so names stay readable on the route.
+        const under = art.getStyle().layers.find((l) => l.type === "symbol")?.id;
+        art.addLayer(
+          {
+            id: "route-casing",
+            type: "line",
+            source: "route",
+            layout: { "line-join": "round", "line-cap": "round" },
+            paint: { "line-color": "#0b4aa8", "line-width": casing },
+          },
+          under,
+        );
+        art.addLayer(
+          {
+            id: "route-line",
+            type: "line",
+            source: "route",
+            layout: { "line-join": "round", "line-cap": "round" },
+            paint: { "line-color": CLASSIC_BLUE, "line-width": width },
+          },
+          under,
+        );
       }
       setMap(art);
     });
@@ -211,4 +247,46 @@ export function setRouteLine(map: MLMap, coordinates: LngLat[] | null) {
 
 function line(coordinates: LngLat[]): Feature<LineString> {
   return { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates } };
+}
+
+// ---- Satellite view: real imagery under the roads and names ----
+
+const originals = new WeakMap<MLMap, Map<string, [string, unknown][]>>();
+
+export function setSatellite(map: MLMap, on: boolean) {
+  if (!map.getLayer("satellite")) return;
+  const setPaint = (id: string, prop: string, value: unknown) =>
+    (map.setPaintProperty as (id: string, prop: string, value: unknown) => void).call(map, id, prop, value);
+  let saved = originals.get(map);
+  if (!saved) {
+    saved = new Map();
+    originals.set(map, saved);
+  }
+  const store = saved;
+  const keep = (id: string, props: string[]) => {
+    if (!store.has(id)) store.set(id, props.map((p) => [p, (map.getPaintProperty as (id: string, p: string) => unknown).call(map, id, p)]));
+  };
+  const restore = (id: string) => {
+    for (const [prop, value] of store.get(id) ?? []) setPaint(id, prop, value);
+  };
+  for (const layer of map.getStyle().layers) {
+    const id = layer.id;
+    if (id === "satellite" || id.startsWith("route-")) continue;
+    if (layer.type === "fill" || layer.type === "fill-extrusion" || layer.type === "background" || layer.type === "raster") {
+      map.setLayoutProperty(id, "visibility", on ? "none" : "visible");
+    } else if (layer.type === "line" && /^(waterway|park_outline)/.test(id)) {
+      map.setLayoutProperty(id, "visibility", on ? "none" : "visible");
+    } else if (layer.type === "line" && /^(road|bridge|tunnel)_/.test(id) && !/rail|arrow/.test(id)) {
+      keep(id, ["line-opacity"]);
+      if (on) setPaint(id, "line-opacity", 0.55);
+      else restore(id);
+    } else if (layer.type === "symbol" && layer.layout && "text-field" in layer.layout) {
+      keep(id, ["text-color", "text-halo-color"]);
+      if (on) {
+        setPaint(id, "text-color", "#ffffff");
+        setPaint(id, "text-halo-color", "rgba(0,0,0,0.8)");
+      } else restore(id);
+    }
+  }
+  map.setLayoutProperty("satellite", "visibility", on ? "visible" : "none");
 }

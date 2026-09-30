@@ -31,7 +31,7 @@ import {
 } from "./lib/store";
 import { Driver } from "./map/drive";
 import { PlaceMarkers } from "./map/placeMarkers";
-import { setRouteLine, useAppMap } from "./map/useAppMap";
+import { setRouteLine, setSatellite, useAppMap } from "./map/useAppMap";
 import { NavBanner, NavBar } from "./components/NavUI";
 import { Navigator, type NavState } from "./nav/Navigator";
 import { loadMode, loadTheme, loadVoice, saveMode, saveTheme, saveVoice, type Theme } from "./lib/settings";
@@ -101,6 +101,8 @@ function sheetOffset(): [number, number] {
   return [-206, 0];
 }
 
+const POI_LAYERS = ["poi_r1", "poi_r7", "poi_r20", "poi_transit"];
+
 const today = () => new Date().toISOString().slice(0, 10);
 
 export default function App() {
@@ -110,6 +112,7 @@ export default function App() {
   const [theme, setTheme] = useState<Theme>(loadTheme);
   const [voice, setVoice] = useState<boolean>(loadVoice);
   const [mode, setMode] = useState<Mode>(loadMode);
+  const [satellite, setSatelliteOn] = useState(false);
   const modeRef = useRef(mode);
   useEffect(() => {
     modeRef.current = mode;
@@ -219,6 +222,10 @@ export default function App() {
     }
   }, [map, trip, theme]);
 
+  useEffect(() => {
+    if (map && theme === "classic") setSatellite(map, satellite);
+  }, [map, theme, satellite]);
+
   // Guides you along the route using your real position.
   useEffect(() => {
     if (!map) return;
@@ -307,7 +314,7 @@ export default function App() {
   useEffect(() => {
     if (!map) return;
     const onClick = async (e: maplibregl.MapMouseEvent) => {
-      const at: LngLat = [e.lngLat.lng, e.lngLat.lat];
+      let at: LngLat = [e.lngLat.lng, e.lngLat.lat];
       const { sheet: open, drive: driving } = live.current;
       if (driving.status === "driving") return;
       if (open?.kind === "editor") {
@@ -318,6 +325,24 @@ export default function App() {
         setSheet(null);
         return;
       }
+      // Tapping a shop, restaurant or station on the map selects it, like any maps app.
+      let tapped: Place | null = null;
+      if (live.current.theme === "classic") {
+        const r = 14;
+        const layers = POI_LAYERS.filter((id) => map.getLayer(id));
+        const hit = map
+          .queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers })
+          .find((f) => f.geometry.type === "Point" && (f.properties?.name_en || f.properties?.name));
+        if (hit && hit.geometry.type === "Point") {
+          at = [hit.geometry.coordinates[0], hit.geometry.coordinates[1]];
+          const kind = String(hit.properties?.subclass || hit.properties?.class || "Place").replace(/_/g, " ");
+          tapped = {
+            label: String(hit.properties?.name_en || hit.properties?.name),
+            detail: kind.charAt(0).toUpperCase() + kind.slice(1),
+            at,
+          };
+        }
+      }
       const token = ++lookup.current;
       markers.current.drop?.remove();
       markers.current.drop = (
@@ -327,13 +352,24 @@ export default function App() {
       )
         .setLngLat(at)
         .addTo(map);
+      if (tapped) {
+        setCard({ kind: "pin", place: tapped });
+        return;
+      }
       setCard({ kind: "pin", place: { label: "Dropped pin", detail: "Looking up…", at } });
       const place = await reverseLookup(at);
       if (token === lookup.current) setCard({ kind: "pin", place });
     };
+    const onMove = (e: maplibregl.MapMouseEvent) => {
+      if (live.current.theme !== "classic") return;
+      const layers = POI_LAYERS.filter((id) => map.getLayer(id));
+      map.getCanvas().style.cursor = map.queryRenderedFeatures(e.point, { layers }).length ? "pointer" : "";
+    };
     map.on("click", onClick);
+    map.on("mousemove", onMove);
     return () => {
       map.off("click", onClick);
+      map.off("mousemove", onMove);
     };
   }, [map]);
 
@@ -806,6 +842,19 @@ export default function App() {
         <button className="pixel-btn" aria-label="Zoom out" onClick={() => map?.zoomOut()}>
           −
         </button>
+        {theme === "classic" && (
+          <button
+            className={satellite ? "pixel-btn on" : "pixel-btn"}
+            aria-label={satellite ? "Switch to map view" : "Switch to satellite view"}
+            aria-pressed={satellite}
+            onClick={() => setSatelliteOn((on) => !on)}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 3 3 8l9 5 9-5-9-5z" fill="currentColor" />
+              <path d="M3 12l9 5 9-5M3 16l9 5 9-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
         <button className="pixel-btn" aria-label="Find me" onClick={() => locate()}>
           ◎
         </button>
