@@ -16,6 +16,7 @@ import {
   type Route,
 } from "./lib/geo";
 import { currentPosition, onBackButton, saveBackupFile } from "./lib/platform";
+import { logFamilyEvent } from "./lib/family";
 import {
   loadCar,
   loadPlaces,
@@ -124,6 +125,24 @@ export default function App() {
   });
   const { artHost, labelHost, map } = useAppMap(theme, firstView);
   const [route, setRoute] = useState<Route | null>(null);
+  // 128bit family feed: one event per trip finished with guidance.
+  const tripStart = useRef<number | null>(null);
+  useEffect(() => {
+    if (nav?.phase === "active" && tripStart.current == null) tripStart.current = Date.now();
+    if (nav?.phase !== "arrived" || tripStart.current == null || !route) return;
+    const started = tripStart.current;
+    tripStart.current = null;
+    logFamilyEvent(
+      "route.finished",
+      {
+        mode,
+        km: Math.round(route.distance / 100) / 10,
+        minutes: Math.max(1, Math.round((Date.now() - started) / 60_000)),
+        to: trip.to?.label ?? null,
+      },
+      `map-route-${started}`,
+    );
+  }, [nav?.phase, route, mode, trip.to]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSteps, setShowSteps] = useState(false);

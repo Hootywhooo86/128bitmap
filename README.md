@@ -118,3 +118,13 @@ React + TypeScript + Vite, [MapLibre GL](https://maplibre.org/) for the map, fre
 4. ~~Optional retro look with buildings and cars~~
 5. ~~Installable app, Android and iPhone projects~~
 6. Next: navigation that keeps working with the screen off, live traffic, offline maps, sync places between devices, share a place with a friend
+
+## 128bit family account
+
+Menu → **128BIT**: the 128bit family account, the same sign-in as 128bitPlay, 128bitfit, 128bittrip,
+128bitfantasy, 128bitmusic and 128bit Tracker (Google and Apple on the website, email everywhere).
+Signed in, every trip finished with guidance posts a `route.finished` event (mode, km, minutes,
+destination name) to the family feed via [`src/lib/family.ts`](src/lib/family.ts), so it shows on
+Tracker's timeline and reaches 128bitlife. Events wait in an outbox when offline; nothing is sent
+while signed out. On the website the sign-in is shared with every 128bit page. Places and routes
+stay on the device. Feed schema: 128bittracker's `docs/EVENTS.md`.

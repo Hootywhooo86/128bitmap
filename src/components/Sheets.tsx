@@ -5,9 +5,10 @@ import { BUILDINGS, SHELVES, buildingsOnShelf, getBuilding, type ShelfId } from 
 import { CARS } from "../pixel/cars";
 import type { Theme } from "../lib/settings";
 import { CLASSIC_COLORS, PIN_SIZE, pinUrl } from "../pixel/classicMarkers";
+import { FamilyTab } from "./FamilyTab";
 import { SpriteImg } from "./SpriteImg";
 
-export type MenuTab = "places" | "look" | "backup";
+export type MenuTab = "places" | "look" | "backup" | "account";
 
 export type Draft = {
   id?: string;
@@ -20,6 +21,7 @@ const TABS: { id: MenuTab; label: string }[] = [
   { id: "places", label: "PLACES" },
   { id: "look", label: "LOOK" },
   { id: "backup", label: "BACKUP" },
+  { id: "account", label: "128BIT" },
 ];
 
 type MenuProps = {
@@ -66,6 +68,7 @@ export function MenuSheet(p: MenuProps) {
         {p.tab === "places" && <PlacesTab {...p} />}
         {p.tab === "look" && <LookTab {...p} />}
         {p.tab === "backup" && <BackupTab count={p.places.length} onBackup={p.onBackup} onRestore={p.onRestore} />}
+        {p.tab === "account" && <FamilyTab />}
       </div>
     </section>
   );
