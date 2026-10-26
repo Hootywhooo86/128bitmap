@@ -8,6 +8,9 @@ import {
   formatDistance,
   formatDuration,
   getRoute,
+  getRoutes,
+  googleMapsUrl,
+  googlePlaceUrl,
   MODES,
   reverseLookup,
   type LngLat,
@@ -30,10 +33,11 @@ import {
   type SavedPlace,
 } from "./lib/store";
 import { PlaceMarkers } from "./map/placeMarkers";
-import { setRouteLine, setSatellite, useAppMap } from "./map/useAppMap";
+import { CATEGORIES, findNearby, setNearby, type Category, type Nearby } from "./map/nearby";
+import { setAltLines, setRouteLine, setSatellite, useAppMap } from "./map/useAppMap";
 import { NavBanner, NavBar } from "./components/NavUI";
 import { Navigator, type NavState } from "./nav/Navigator";
-import { loadMode, loadTheme, loadVoice, saveMode, saveTheme, saveVoice, type Theme } from "./lib/settings";
+import { loadAppearance, loadMode, loadTheme, loadVoice, saveAppearance, saveMode, saveTheme, saveVoice, type Appearance, type Theme } from "./lib/settings";
 import { CLASSIC_COLORS, DOT_SIZE, PIN_SIZE, dotUrl, pinUrl } from "./pixel/classicMarkers";
 import { getBuilding, suggestBuilding } from "./pixel/buildings";
 import { DROP_PIN, GOAL_FLAG, START_FLAG, YOU_DOT, spriteToDataUrl, type Sprite } from "./pixel/sprites";
@@ -120,8 +124,19 @@ export default function App() {
     const at = trip.from?.at ?? places[0]?.at;
     return at ? { center: at, zoom: 13 } : DEFAULT_VIEW;
   });
-  const { artHost, labelHost, map } = useAppMap(theme, firstView);
-  const [route, setRoute] = useState<Route | null>(null);
+  const [appearance, setAppearance] = useState<Appearance>(loadAppearance);
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia("(prefers-color-scheme: dark)").matches);
+  useEffect(() => {
+    const q = window.matchMedia("(prefers-color-scheme: dark)");
+    const on = () => setSystemDark(q.matches);
+    q.addEventListener("change", on);
+    return () => q.removeEventListener("change", on);
+  }, []);
+  const dark = theme === "classic" && (appearance === "dark" || (appearance === "auto" && systemDark));
+  const { artHost, labelHost, map } = useAppMap(theme, dark, firstView);
+  const [alts, setAlts] = useState<Route[]>([]);
+  const [altIndex, setAltIndex] = useState(0);
+  const route: Route | null = alts[altIndex] ?? null;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showSteps, setShowSteps] = useState(false);
@@ -237,8 +252,8 @@ export default function App() {
       {
         onState: setNav,
         onReroute: (next) => {
-          setRoute(next);
-          setRouteLine(map, next.line);
+          setAlts([next]);
+          setAltIndex(0);
         },
         getRoute: (a, b, signal) => getRoute(a, b, signal, modeRef.current),
         mode: () => modeRef.current,
@@ -265,29 +280,32 @@ export default function App() {
     setNav(null);
     const { from, to } = trip;
     if (!from || !to) {
-      setRoute(null);
+      setAlts([]);
+      setAltIndex(0);
       setError(null);
-      setRouteLine(map, null);
       if (from || to) map.flyTo({ center: (from ?? to)!.at, zoom: Math.max(map.getZoom(), 13) });
       return;
     }
     const ctrl = new AbortController();
     setLoading(true);
     setError(null);
-    getRoute(from.at, to.at, ctrl.signal, mode)
-      .then((next) => {
-        setRoute(next);
-        setRouteLine(map, next.line);
-        const bounds = next.line.reduce(
-          (b, p) => b.extend(p),
-          new maplibregl.LngLatBounds(next.line[0], next.line[0]),
+    getRoutes(from.at, to.at, ctrl.signal, mode)
+      .then((found) => {
+        // Fastest first.
+        const list = [...found].sort((x, y) => x.duration - y.duration).slice(0, 3);
+        setAlts(list);
+        setAltIndex(0);
+        const all = list.flatMap((r) => r.line);
+        const bounds = all.reduce((b, p) => b.extend(p), new maplibregl.LngLatBounds(all[0], all[0]));
+        // After the route options have drawn, so the padding knows how tall the panel is.
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => map.fitBounds(bounds, { padding: routePadding(panelRef.current), maxZoom: 16 })),
         );
-        map.fitBounds(bounds, { padding: routePadding(panelRef.current), maxZoom: 16 });
       })
       .catch((err: Error) => {
         if (ctrl.signal.aborted) return;
-        setRoute(null);
-        setRouteLine(map, null);
+        setAlts([]);
+        setAltIndex(0);
         setError(err.message || "Couldn't find a route.");
       })
       .finally(() => {
@@ -295,6 +313,36 @@ export default function App() {
       });
     return () => ctrl.abort();
   }, [map, trip, mode]);
+
+  // Draw the chosen route, and the other options paler beside it.
+  useEffect(() => {
+    if (!map) return;
+    setRouteLine(map, route?.line ?? null);
+    setAltLines(map, alts, altIndex);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [map, alts, altIndex]);
+
+  // "What's around me": a category, its results, and dots on the map.
+  const [around, setAround] = useState<{ cat: Category; items: Nearby[] } | null>(null);
+  const clearAround = useCallback(() => {
+    setAround(null);
+    if (map) setNearby(map, null);
+  }, [map]);
+  useEffect(() => {
+    setAround(null);
+  }, [map]);
+
+  const findAround = (cat: Category) => {
+    if (!map) return;
+    if (around?.cat.id === cat.id) {
+      clearAround();
+      return;
+    }
+    const c = map.getCenter();
+    const items = findNearby(map, theme === "retro" ? "omt" : "openmaptiles", cat, [c.lng, c.lat]);
+    setNearby(map, items);
+    setAround({ cat, items });
+  };
 
   const closePin = useCallback(() => {
     lookup.current++;
@@ -309,6 +357,14 @@ export default function App() {
       let at: LngLat = [e.lngLat.lng, e.lngLat.lat];
       const { sheet: open, nav: guided } = live.current;
       if (guided) return;
+      if (map.getLayer("route-alt-line")) {
+        const r = 12;
+        const alt = map.queryRenderedFeatures([[e.point.x - r, e.point.y - r], [e.point.x + r, e.point.y + r]], { layers: ["route-alt-line"] })[0];
+        if (alt) {
+          setAltIndex(Number(alt.properties?.i ?? 0));
+          return;
+        }
+      }
       if (open?.kind === "editor") {
         setSheet({ kind: "editor", draft: { ...open.draft, at } });
         return;
@@ -364,6 +420,25 @@ export default function App() {
       map.off("mousemove", onMove);
     };
   }, [map]);
+
+  // Show one place (a search or "around me" result) as a pin with its card.
+  const showPlace = useCallback(
+    (place: Place) => {
+      if (!map) return;
+      lookup.current++;
+      markers.current.drop?.remove();
+      markers.current.drop = (
+        live.current.theme === "retro"
+          ? spriteMarker(DROP_PIN, "bottom")
+          : svgMarker(pinUrl(CLASSIC_COLORS.drop), PIN_SIZE, "bottom")
+      )
+        .setLngLat(place.at)
+        .addTo(map);
+      setCard({ kind: "pin", place });
+      map.flyTo({ center: place.at, zoom: Math.max(map.getZoom(), 16) });
+    },
+    [map],
+  );
 
   useEffect(() => {
     if (card?.kind !== "pin") closePin();
@@ -520,6 +595,11 @@ export default function App() {
     saveTheme(next);
   };
 
+  const changeAppearance = (next: Appearance) => {
+    setAppearance(next);
+    saveAppearance(next);
+  };
+
   const changeMode = (next: Mode) => {
     setMode(next);
     saveMode(next);
@@ -535,6 +615,7 @@ export default function App() {
     if (!route || !trip.to) return;
     setCard(null);
     setSheet(null);
+    clearAround();
     void guidance.current?.start(route, trip.to.at, voice, demo);
   };
 
@@ -551,7 +632,7 @@ export default function App() {
 
   return (
     <div
-      className={`app theme-${theme}${sheet ? " sheet-open" : ""}${nav ? " navigating" : ""}`}
+      className={`app theme-${theme}${dark ? " dark" : ""}${sheet ? " sheet-open" : ""}${nav ? " navigating" : ""}`}
     >
       <div className="map-stack">
         <div ref={artHost} className="map art-map" />
@@ -622,6 +703,28 @@ export default function App() {
           ))}
         </div>
 
+        {!route && !loading && (
+          <div className="cats" role="group" aria-label="Find nearby">
+            {(
+              [
+                ["🏠", "Home", places.find((p) => /^home$/i.test(p.name.trim()))],
+                ["💼", "Work", places.find((p) => /^work$/i.test(p.name.trim()))],
+              ] as const
+            ).map(([glyph, label, saved]) =>
+              saved ? (
+                <button key={label} className="cat" onClick={() => applyPlaceTo("to", saved)}>
+                  <span aria-hidden="true">{glyph}</span> {label}
+                </button>
+              ) : null,
+            )}
+            {CATEGORIES.map((c) => (
+              <button key={c.id} className={around?.cat.id === c.id ? "cat on" : "cat"} onClick={() => findAround(c)} aria-pressed={around?.cat.id === c.id}>
+                <span aria-hidden="true">{c.glyph}</span> {c.label}
+              </button>
+            ))}
+          </div>
+        )}
+
         {trip.to && !trip.from && (
           <button className="pixel-btn go-from wide" onClick={() => locate(setEnd("from"))}>
             USE MY LOCATION AS START
@@ -649,6 +752,26 @@ export default function App() {
               </button>
             </div>
           </div>
+        )}
+
+        {alts.length > 1 && !loading && (
+          <div className="alts" role="radiogroup" aria-label="Route options">
+            {alts.map((r, i) => (
+              <button key={i} role="radio" aria-checked={i === altIndex} className={i === altIndex ? "alt on" : "alt"} onClick={() => setAltIndex(i)}>
+                <b>{formatDuration(r.duration)}</b>
+                <span>
+                  {i === 0 ? "Fastest" : `+${Math.max(1, Math.round((r.duration - alts[0].duration) / 60))} min`} · {formatDistance(r.distance)}
+                  {r.via ? ` · via ${r.via}` : ""}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {route && trip.to && !loading && (
+          <a className="handoff" href={googleMapsUrl(trip.from?.at ?? null, trip.to.at, mode)} target="_blank" rel="noopener noreferrer">
+            Open this trip in Google Maps ↗
+          </a>
         )}
 
         {route && showSteps && !loading && (
@@ -680,6 +803,39 @@ export default function App() {
         </>
       )}
 
+      {around && !route && !loading && !nav && !cardPlace && !sheet && (
+      <section className="panel drop-panel around-panel">
+          <div className="around-head">
+            <b>{around.cat.label} nearby</b>
+            <button className="around-close" onClick={clearAround} aria-label="Close results">
+              ✕
+            </button>
+          </div>
+          {around.items.length === 0 ? (
+            <p className="dim pad">Nothing on this part of the map. Zoom out or move the map, then tap again.</p>
+          ) : (
+            <ul className="around-list">
+              {around.items.map((n, i) => (
+                <li key={`${n.place.label}${i}`}>
+                  <button
+                    onClick={() => {
+                      showPlace(n.place);
+                      clearAround();
+                    }}
+                  >
+                    <span className="step-text">
+                      {n.place.label}
+                      {n.place.detail && <span className="dim"> · {n.place.detail}</span>}
+                    </span>
+                    <span className="dim">{formatDistance(n.dist)}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+    )}
+
       {cardPlace && !sheet && !nav && (
         <section className="panel drop-panel">
           <div className="drop-info">
@@ -699,6 +855,9 @@ export default function App() {
               </span>
             </span>
           </div>
+          <a className="handoff" href={googlePlaceUrl(cardPlace.at, cardPlace.label === "Dropped pin" ? "" : cardPlace.label)} target="_blank" rel="noopener noreferrer">
+            See this place in Google Maps ↗
+          </a>
           <div className="drop-actions">
             <button
               className="pixel-btn go-from"
@@ -758,6 +917,8 @@ export default function App() {
           onCar={pickCar}
           theme={theme}
           onTheme={changeTheme}
+          appearance={appearance}
+          onAppearance={changeAppearance}
           voice={voice}
           onVoice={changeVoice}
           onBackup={doBackup}

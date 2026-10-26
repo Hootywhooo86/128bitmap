@@ -56,3 +56,24 @@ export function saveMode(mode: Mode) {
     // Not remembered in private mode.
   }
 }
+
+// Day or night look for the classic map. "auto" follows the phone's dark mode.
+export type Appearance = "auto" | "light" | "dark";
+const APPEARANCE_KEY = "128bitmaps.appearance";
+
+export function loadAppearance(): Appearance {
+  try {
+    const v = localStorage.getItem(APPEARANCE_KEY);
+    return v === "light" || v === "dark" ? v : "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+export function saveAppearance(value: Appearance) {
+  try {
+    localStorage.setItem(APPEARANCE_KEY, value);
+  } catch {
+    // Not remembered in private mode.
+  }
+}

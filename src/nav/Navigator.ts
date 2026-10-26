@@ -56,6 +56,7 @@ export function sayDistance(meters: number): string {
 const ARRIVE_WITHIN = 25;
 const TILT = 60;
 const FRAME_MS = 33;
+const LITE_FRAME_MS = 55;
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 // Guides you along a route using your real position. GPS only arrives about once a second, so the
@@ -82,6 +83,12 @@ export class Navigator {
   private lastKey = "";
   private lastSprite = "";
   private lastNotice = 0;
+  // Adaptive quality: a slow phone gets a lighter map instead of a stuttering one.
+  private frameEma = 0.016;
+  private slowFor = 0;
+  private lite = false;
+  private savedRatio = 0;
+  private prior3d: "visible" | "none" | null = null;
   private lateStop: (() => void) | null = null;
 
   // Where we know you are (from the last fix) and what we show.
@@ -199,7 +206,7 @@ export class Navigator {
         '<path d="M24 5 38 40 24 33 10 40z" fill="#1a73e8" stroke="#fff" stroke-width="3.5" stroke-linejoin="round"/></svg>';
     }
     this.map.on("dragstart", this.onDrag);
-    this.show3d(true);
+    this.start3d();
     this.camBearing = this.map.getBearing();
     this.camZoom = this.map.getZoom();
     this.camPitch = this.map.getPitch();
@@ -333,6 +340,7 @@ export class Navigator {
       return;
     }
     const dt = clamp((now - this.lastTick) / 1000, 0, 0.25);
+    if (now - this.lastTick < 250) this.checkSpeed(dt);
     this.lastTick = now;
     const total = this.cum[this.cum.length - 1] || 1;
 
@@ -350,7 +358,7 @@ export class Navigator {
     const headTo = this.offRoute ? (this.gpsHeading ?? this.dispHeading) : routeBearing(route.line, this.cum, this.dispAlong, look);
     this.dispHeading = easeAngle(this.dispHeading, headTo, dt * 4);
 
-    if (now - this.lastRender >= FRAME_MS) {
+    if (now - this.lastRender >= (this.lite ? LITE_FRAME_MS : FRAME_MS)) {
       this.lastRender = now;
       this.render(now, dt);
     }
@@ -359,6 +367,18 @@ export class Navigator {
       this.emitNow(false);
     }
   };
+
+  // If frames keep taking too long, draw the map more lightly for the rest of the trip.
+  private checkSpeed(dt: number) {
+    if (this.lite || !this.following) return;
+    this.frameEma += (dt - this.frameEma) * 0.08;
+    this.slowFor = this.frameEma > 0.05 ? this.slowFor + dt : 0;
+    if (this.slowFor < 2.5) return;
+    this.lite = true;
+    this.savedRatio = this.map.getPixelRatio();
+    if (this.savedRatio > 1) this.map.setPixelRatio(Math.max(1, this.savedRatio * 0.6));
+    if (this.map.getLayer("building-3d")) this.map.setLayoutProperty("building-3d", "visibility", "none");
+  }
 
   private render(now: number, dt: number) {
     const pos = this.dispPos!;
@@ -573,8 +593,16 @@ export class Navigator {
     if (!on) stopSpeaking();
   }
 
-  private show3d(on: boolean) {
-    if (this.map.getLayer("building-3d")) this.map.setLayoutProperty("building-3d", "visibility", on ? "visible" : "none");
+  // The 3D buildings are on for the trip, and put back the way they were afterwards.
+  private start3d() {
+    if (!this.map.getLayer("building-3d")) return;
+    this.prior3d = (this.map.getLayoutProperty("building-3d", "visibility") as "visible" | "none" | undefined) ?? "visible";
+    this.map.setLayoutProperty("building-3d", "visibility", "visible");
+  }
+
+  private restore3d() {
+    if (this.prior3d && this.map.getLayer("building-3d")) this.map.setLayoutProperty("building-3d", "visibility", this.prior3d);
+    this.prior3d = null;
   }
 
   setTilt(on: boolean) {
@@ -607,7 +635,13 @@ export class Navigator {
     this.stopAwake = null;
     stopSpeaking();
     this.map.off("dragstart", this.onDrag);
-    this.show3d(false);
+    if (this.lite) {
+      if (this.savedRatio > 1) this.map.setPixelRatio(this.savedRatio);
+      this.lite = false;
+    }
+    this.frameEma = 0.016;
+    this.slowFor = 0;
+    this.restore3d();
     if (this.marker) {
       this.marker.remove();
       this.marker = null;

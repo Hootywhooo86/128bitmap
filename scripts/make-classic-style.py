@@ -125,6 +125,22 @@ for lid, layer in layers.items():
     else:
         p["text-color"] = "#2b2f36"
 
+# ---- house numbers on buildings when zoomed in close ----
+style["layers"].append({
+    "id": "housenumber",
+    "type": "symbol",
+    "source": "openmaptiles",
+    "source-layer": "housenumber",
+    "minzoom": 16.6,
+    "layout": {
+        "text-field": ["get", "housenumber"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 16.6, 10, 19, 13],
+        "text-padding": 2,
+    },
+    "paint": {"text-color": "#6b6f76", "text-halo-color": "rgba(255,255,255,0.9)", "text-halo-width": 1.2},
+})
+
 # ---- satellite, hidden until asked for ----
 style["sources"]["satellite"] = {
     "type": "raster",
@@ -146,6 +162,98 @@ out = os.path.join(ROOT, "src/map/classicStyle.json")
 with open(out, "w") as f:
     json.dump(style, f, separators=(",", ":"))
 print("style", os.path.getsize(out) // 1024, "KB,", len(style["layers"]), "layers")
+
+
+# ---- a dark version for night driving ----
+import colorsys
+import copy
+import re
+
+
+def parse_color(text):
+    t = text.strip().lower()
+    m = re.fullmatch(r"#([0-9a-f]{3}|[0-9a-f]{6})", t)
+    if m:
+        h = m.group(1)
+        if len(h) == 3:
+            h = "".join(c * 2 for c in h)
+        r, g, b = (int(h[i : i + 2], 16) / 255 for i in (0, 2, 4))
+        hh, ll, ss = colorsys.rgb_to_hls(r, g, b)
+        return hh * 360, ss, ll, 1.0
+    m = re.fullmatch(r"hsla?\(([^)]*)\)", t)
+    if m:
+        parts = [x.strip().rstrip("%") for x in m.group(1).split(",")]
+        a = float(parts[3]) if len(parts) > 3 else 1.0
+        return float(parts[0]), float(parts[1]) / 100, float(parts[2]) / 100, a
+    m = re.fullmatch(r"rgba?\(([^)]*)\)", t)
+    if m:
+        parts = [x.strip() for x in m.group(1).split(",")]
+        r, g, b = (float(x) / 255 for x in parts[:3])
+        a = float(parts[3]) if len(parts) > 3 else 1.0
+        hh, ll, ss = colorsys.rgb_to_hls(r, g, b)
+        return hh * 360, ss, ll, a
+    return None
+
+
+def fmt(h, s, l, a):
+    s = max(0, min(1, s))
+    l = max(0, min(1, l))
+    if a < 1:
+        return f"hsla({h:.0f},{s*100:.0f}%,{l*100:.1f}%,{a:.2f})"
+    return f"hsl({h:.0f},{s*100:.0f}%,{l*100:.1f}%)"
+
+
+def darken(lid, ltype, prop, color):
+    h, s, l, a = color
+    warm = 20 <= h <= 60 and s > 0.45
+    green = 70 <= h <= 160 and s > 0.15
+    if prop in ("text-color", "icon-color"):
+        return fmt(h, s * 0.55, 0.93 - 0.38 * l, a)
+    if prop == "text-halo-color":
+        return fmt(205, 0.25, 0.08 + 0.06 * l, a)
+    if lid.startswith(("water", "waterway")):
+        return fmt(214, 0.5, 0.11 if ltype != "line" else 0.16, a)
+    if "building" in lid:
+        return fmt(205, 0.12, 0.2 + 0.08 * l, a)
+    if ltype == "line" and re.match(r"(road|bridge|tunnel)_", lid) and "rail" not in lid:
+        if lid.endswith("_casing"):
+            return fmt(210, 0.2, 0.05 + 0.07 * l, a)
+        if warm:
+            return fmt(h, s * 0.85, 0.28 + 0.28 * l, a)
+        return fmt(210, 0.08, 0.2 + 0.2 * l, a)
+    if green:
+        return fmt(150, s * 0.45, 0.13 + 0.05 * l, a)
+    if ltype == "line":
+        return fmt(205, s * 0.3, 0.3 + 0.2 * l, a)
+    # land, landuse and everything else that is a flat colour
+    return fmt(205, 0.2 if s < 0.35 else s * 0.4, 0.09 + 0.1 * l, a)
+
+
+def walk(value, lid, ltype, prop):
+    if isinstance(value, str):
+        c = parse_color(value)
+        return darken(lid, ltype, prop, c) if c else value
+    if isinstance(value, list):
+        return [walk(v, lid, ltype, prop) for v in value]
+    return value
+
+
+night = copy.deepcopy(style)
+night["layers"] = [l for l in night["layers"] if l["id"] not in ("natural_earth",)]
+for layer in night["layers"]:
+    if layer["type"] == "raster":
+        continue
+    for group in ("paint",):
+        for prop, value in list(layer.get(group, {}).items()):
+            if prop.endswith("color"):
+                layer[group][prop] = walk(value, layer["id"], layer["type"], prop)
+    if layer["type"] == "fill-extrusion":
+        layer["paint"]["fill-extrusion-opacity"] = 0.95
+night["name"] = "128BITMAPS night"
+out_dark = os.path.join(ROOT, "src/map/classicDarkStyle.json")
+with open(out_dark, "w") as f:
+    json.dump(night, f, separators=(",", ":"))
+print("dark style", os.path.getsize(out_dark) // 1024, "KB")
 
 # ---- bundle the icons and the common glyph ranges ----
 for name in ("ofm.json", "ofm.png", "ofm@2x.json", "ofm@2x.png"):

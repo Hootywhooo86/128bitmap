@@ -20,6 +20,8 @@ export type Route = {
   duration: number;
   line: LngLat[];
   steps: Step[];
+  // The main road it uses, for telling alternatives apart.
+  via?: string;
 };
 
 type PhotonFeature = {
@@ -27,9 +29,102 @@ type PhotonFeature = {
   properties: Record<string, string | undefined>;
 };
 
-// Photon (by Komoot) is a free search service built on OpenStreetMap data.
-export async function searchPlaces(query: string, near: LngLat | null, signal: AbortSignal): Promise<Place[]> {
-  const params = new URLSearchParams({ q: query, limit: "6", lang: "en" });
+type NominatimHit = {
+  lat: string;
+  lon: string;
+  name?: string;
+  display_name: string;
+  type?: string;
+  address?: Record<string, string | undefined>;
+};
+
+// ---- Search ----
+// Two free services built on OpenStreetMap: Photon is quick and good while you type; Nominatim is
+// much better with street addresses ("10250 101 Street"), so it joins in when the text looks like one.
+
+const searchCache = new Map<string, Place[]>();
+let lastNominatim = 0;
+
+const looksLikeAddress = (q: string) => /^\d+[a-z]?\s+\S/i.test(q) && q.length >= 6;
+const houseNumberOf = (q: string) => q.match(/^(\d+[a-z]?)\s/i)?.[1]?.toLowerCase() ?? null;
+
+function dedupe(list: Place[]): Place[] {
+  const seen = new Set<string>();
+  return list.filter((p) => {
+    const key = `${p.label.toLowerCase()}|${p.at[0].toFixed(4)}|${p.at[1].toFixed(4)}`;
+    const near = `${p.at[0].toFixed(3)}|${p.at[1].toFixed(3)}|${p.label.toLowerCase().slice(0, 12)}`;
+    if (seen.has(key) || seen.has(near)) return false;
+    seen.add(key);
+    seen.add(near);
+    return true;
+  });
+}
+
+export async function searchPlaces(
+  query: string,
+  near: LngLat | null,
+  signal: AbortSignal,
+  // Called as each service answers, so results appear as soon as the first one is back.
+  onUpdate?: (places: Place[]) => void,
+): Promise<Place[]> {
+  const key = `${query.toLowerCase()}|${near ? near.map((n) => n.toFixed(1)).join() : ""}`;
+  const cached = searchCache.get(key);
+  if (cached) {
+    onUpdate?.(cached);
+    return cached;
+  }
+  const number = houseNumberOf(query);
+  const rank = (list: Place[]) => {
+    const score = (p: Place) => {
+      let v = 0;
+      // An address with the number you typed beats a lookalike with a different number.
+      if (number) v += p.label.toLowerCase().startsWith(`${number} `) ? -2 : 0;
+      if (near) v += Math.min(1, Math.hypot(p.at[0] - near[0], (p.at[1] - near[1]) * 1.6) / 2);
+      return v;
+    };
+    return dedupe([...list].sort((a, b) => score(a) - score(b))).slice(0, 8);
+  };
+
+  let photon: Place[] = [];
+  let nominatim: Place[] = [];
+  const publish = () => onUpdate?.(rank([...nominatim, ...photon]));
+
+  let nominatimAsked = false;
+  const askNominatim = () => {
+    if (nominatimAsked) return Promise.resolve();
+    nominatimAsked = true;
+    return searchNominatim(query, near, signal)
+      .then((r) => {
+        nominatim = r;
+        publish();
+      })
+      .catch(() => {});
+  };
+  // Photon can hiccup or come back empty; Nominatim then fills in so there is always an answer.
+  const askPhoton = async () => {
+    try {
+      photon = await searchPhoton(query, near, signal).catch(async (e) => {
+        if (signal.aborted) throw e;
+        await new Promise((r) => setTimeout(r, 350));
+        return searchPhoton(query, near, signal);
+      });
+      publish();
+    } catch (e) {
+      if (signal.aborted) throw e;
+    }
+    if (photon.length === 0 && !signal.aborted) await askNominatim();
+  };
+  const tasks: Promise<void>[] = [askPhoton()];
+  if (looksLikeAddress(query)) tasks.push(askNominatim());
+  const [first] = await Promise.allSettled(tasks);
+  if (first.status === "rejected") throw first.reason;
+  const result = rank([...nominatim, ...photon]);
+  if (result.length) searchCache.set(key, result);
+  return result;
+}
+
+async function searchPhoton(query: string, near: LngLat | null, signal: AbortSignal): Promise<Place[]> {
+  const params = new URLSearchParams({ q: query, limit: "8", lang: "en" });
   if (near) {
     params.set("lon", near[0].toFixed(4));
     params.set("lat", near[1].toFixed(4));
@@ -40,16 +135,52 @@ export async function searchPlaces(query: string, near: LngLat | null, signal: A
   return (body.features ?? []).map(toPlace);
 }
 
+// The public Nominatim server asks for at most one request a second, so these are spaced out.
+async function searchNominatim(query: string, near: LngLat | null, signal: AbortSignal): Promise<Place[]> {
+  const wait = Math.max(0, lastNominatim + 1100 - Date.now());
+  lastNominatim = Date.now() + wait;
+  if (wait) await new Promise((r) => setTimeout(r, wait));
+  if (signal.aborted) return [];
+  const params = new URLSearchParams({ q: query, format: "jsonv2", addressdetails: "1", limit: "6", "accept-language": "en" });
+  if (near) params.set("viewbox", `${near[0] - 0.7},${near[1] + 0.5},${near[0] + 0.7},${near[1] - 0.5}`);
+  const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, { signal });
+  if (!res.ok) throw new Error(`Search failed (${res.status})`);
+  return ((await res.json()) as NominatimHit[]).map(nominatimToPlace);
+}
+
+function nominatimToPlace(hit: NominatimHit): Place {
+  const a = hit.address ?? {};
+  const street = [a.house_number, a.road].filter(Boolean).join(" ");
+  const label = hit.name && hit.name !== a.road ? hit.name : street || hit.display_name.split(",")[0];
+  const city = a.city || a.town || a.village || a.municipality || a.suburb;
+  const detail = [hit.name && street ? street : "", city, a.state].filter((part) => part && part !== label).join(", ");
+  return { label, detail, at: [Number(hit.lon), Number(hit.lat)] };
+}
+
 export async function reverseLookup(at: LngLat): Promise<Place> {
   const params = new URLSearchParams({ lon: String(at[0]), lat: String(at[1]), lang: "en" });
+  const photon = fetch(`https://photon.komoot.io/reverse?${params}`)
+    .then((r) => r.json() as Promise<{ features?: PhotonFeature[] }>)
+    .then((body) => {
+      const hit = body.features?.[0];
+      return hit ? { place: { ...toPlace(hit), at }, hasNumber: !!hit.properties.housenumber } : null;
+    })
+    .catch(() => null);
+  const first = await photon;
+  if (first?.hasNumber) return first.place;
+  // Photon often only knows the street; Nominatim can find the exact house number.
   try {
-    const res = await fetch(`https://photon.komoot.io/reverse?${params}`);
-    const body = (await res.json()) as { features?: PhotonFeature[] };
-    const hit = body.features?.[0];
-    if (hit) return { ...toPlace(hit), at };
+    const q = new URLSearchParams({ lon: String(at[0]), lat: String(at[1]), format: "jsonv2", addressdetails: "1", zoom: "18", "accept-language": "en" });
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?${q}`, { signal: AbortSignal.timeout(2500) });
+    const hit = (await res.json()) as NominatimHit & { error?: string };
+    if (!hit.error && hit.lat) {
+      const place = nominatimToPlace(hit);
+      if (hit.address?.house_number || !first) return { ...place, at };
+    }
   } catch {
-    // Fall through to a plain label; the spot is still usable.
+    // Keep what Photon found.
   }
+  if (first) return first.place;
   return { label: "Dropped pin", detail: `${at[1].toFixed(4)}, ${at[0].toFixed(4)}`, at };
 }
 
@@ -80,30 +211,56 @@ export const MODES: { id: Mode; label: string }[] = [
 
 const PROFILE: Record<Mode, string> = { drive: "routed-car", walk: "routed-foot", bike: "routed-bike" };
 
+type OsrmRoute = {
+  distance: number;
+  duration: number;
+  geometry: { coordinates: LngLat[] };
+  legs: { steps: OsrmStep[] }[];
+};
+
 // Routes come from the free FOSSGIS OSRM servers (car, foot and bike profiles). Fine for personal
-// use; swap for a keyed routing service before a big public launch.
-export async function getRoute(from: LngLat, to: LngLat, signal: AbortSignal, mode: Mode = "drive"): Promise<Route> {
-  const coords = `${from[0]},${from[1]};${to[0]},${to[1]}`;
-  const url = `https://routing.openstreetmap.de/${PROFILE[mode]}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true`;
-  const res = await fetch(url, { signal });
+// use; swap for a keyed routing service before a big public launch. If the main server is slow
+// for driving, the public OSRM demo server is asked too and whichever answers first wins.
+async function fetchOsrm(base: string, coords: string, signal: AbortSignal, alternatives: boolean): Promise<Route[]> {
+  const alt = alternatives ? "&alternatives=3" : "";
+  const res = await fetch(`${base}/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=true${alt}`, { signal });
   if (!res.ok) throw new Error(`Route failed (${res.status})`);
-  const body = (await res.json()) as {
-    code: string;
-    routes?: {
-      distance: number;
-      duration: number;
-      geometry: { coordinates: LngLat[] };
-      legs: { steps: OsrmStep[] }[];
-    }[];
-  };
-  const route = body.routes?.[0];
-  if (body.code !== "Ok" || !route) throw new Error("No road route between those two places.");
+  const body = (await res.json()) as { code: string; routes?: OsrmRoute[] };
+  if (body.code !== "Ok" || !body.routes?.length) throw new Error("No road route between those two places.");
+  return body.routes.map(toRoute);
+}
+
+function toRoute(route: OsrmRoute): Route {
+  const steps = route.legs.flatMap((leg) => leg.steps);
+  // The road you spend the longest on names the route ("via 170 Street NW").
+  const longest = [...steps].filter((st) => st.name).sort((x, y) => y.distance - x.distance)[0];
   return {
     distance: route.distance,
     duration: route.duration,
     line: route.geometry.coordinates,
-    steps: route.legs.flatMap((leg) => leg.steps).map(toStep),
+    steps: steps.map(toStep),
+    via: longest?.name,
   };
+}
+
+export async function getRoutes(from: LngLat, to: LngLat, signal: AbortSignal, mode: Mode = "drive", alternatives = true): Promise<Route[]> {
+  const coords = `${from[0]},${from[1]};${to[0]},${to[1]}`;
+  const main = fetchOsrm(`https://routing.openstreetmap.de/${PROFILE[mode]}`, coords, signal, alternatives);
+  if (mode !== "drive") return main;
+  const backup = new Promise<Route[]>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      fetchOsrm("https://router.project-osrm.org", coords, signal, alternatives).then(resolve, reject);
+    }, 2200);
+    signal.addEventListener("abort", () => clearTimeout(timer));
+  });
+  // The first good answer wins; if both fail, report the main server's problem.
+  return Promise.any([main, backup]).catch((e: AggregateError) => {
+    throw e.errors?.[0] ?? e;
+  });
+}
+
+export async function getRoute(from: LngLat, to: LngLat, signal: AbortSignal, mode: Mode = "drive"): Promise<Route> {
+  return (await getRoutes(from, to, signal, mode, false))[0];
 }
 
 function toStep(step: OsrmStep): Step {
@@ -174,4 +331,16 @@ export function formatDuration(seconds: number): string {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
   return m ? `${h} hr ${m} min` : `${h} hr`;
+}
+
+
+// Hands a trip to the real Google Maps app (or site), for anything this app can't do.
+export function googleMapsUrl(from: LngLat | null, to: LngLat, mode: Mode): string {
+  const p = new URLSearchParams({ api: "1", destination: `${to[1]},${to[0]}`, travelmode: mode === "drive" ? "driving" : mode === "walk" ? "walking" : "bicycling" });
+  if (from) p.set("origin", `${from[1]},${from[0]}`);
+  return `https://www.google.com/maps/dir/?${p}`;
+}
+
+export function googlePlaceUrl(at: LngLat, label: string): string {
+  return `https://www.google.com/maps/search/?${new URLSearchParams({ api: "1", query: label ? `${label} ${at[1]},${at[0]}` : `${at[1]},${at[0]}` })}`;
 }

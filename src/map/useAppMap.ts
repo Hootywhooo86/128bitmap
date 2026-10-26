@@ -6,6 +6,7 @@ import type { Feature, LineString } from "geojson";
 import type { LngLat } from "../lib/geo";
 import type { Theme } from "../lib/settings";
 import classicJson from "./classicStyle.json";
+import classicDarkJson from "./classicDarkStyle.json";
 import workerUrl from "./maplibre-worker?worker&url";
 
 maplibregl.setWorkerUrl(workerUrl);
@@ -20,8 +21,8 @@ const LABEL_LAYERS = new Set(["road-label", "water-label", "place-label"]);
 // scripts/make-classic-style.py), so the map doesn't wait on a chain of requests before it can draw.
 const appBase = () => new URL("./", document.baseURI).href;
 
-function classicStyle(): StyleSpecification {
-  const style = structuredClone(classicJson) as unknown as StyleSpecification;
+function classicStyle(dark: boolean): StyleSpecification {
+  const style = structuredClone(dark ? classicDarkJson : classicJson) as unknown as StyleSpecification;
   style.sprite = `${appBase()}map/sprite/ofm`;
   return style;
 }
@@ -49,7 +50,7 @@ export type MapView = { center: LngLat; zoom: number };
 //    scaled up without smoothing (chunky pixels); the label map draws only text, at full
 //    sharpness, so names stay readable.
 // Switching look rebuilds the map in the same place.
-export function useAppMap(theme: Theme, start: MapView) {
+export function useAppMap(theme: Theme, dark: boolean, start: MapView) {
   const artHost = useRef<HTMLDivElement>(null);
   const labelHost = useRef<HTMLDivElement>(null);
   const [map, setMap] = useState<MLMap | null>(null);
@@ -64,7 +65,7 @@ export function useAppMap(theme: Theme, start: MapView) {
       container: artHost.current,
       style: style
         ? { ...style, layers: style.layers.filter((l) => !LABEL_LAYERS.has(l.id)) }
-        : classicStyle(),
+        : classicStyle(dark),
       transformRequest,
       center: view.current.center,
       zoom: view.current.zoom,
@@ -114,7 +115,15 @@ export function useAppMap(theme: Theme, start: MapView) {
 
     art.on("load", () => {
       art.addSource("route", { type: "geojson", data: line([]) });
+      art.addSource("route-alt", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       if (retro) {
+        art.addLayer({
+          id: "route-alt-line",
+          type: "line",
+          source: "route-alt",
+          layout: { "line-join": "miter", "line-cap": "square" },
+          paint: { "line-color": "#8c86b8", "line-width": 9, "line-dasharray": [2, 1.4] },
+        });
         art.addLayer({
           id: "route-glow",
           type: "line",
@@ -150,6 +159,16 @@ export function useAppMap(theme: Theme, start: MapView) {
         const under = art.getStyle().layers.find((l) => l.type === "symbol")?.id;
         art.addLayer(
           {
+            id: "route-alt-line",
+            type: "line",
+            source: "route-alt",
+            layout: { "line-join": "round", "line-cap": "round" },
+            paint: { "line-color": dark ? "#5f8fd6" : "#8ab0e8", "line-width": width },
+          },
+          under,
+        );
+        art.addLayer(
+          {
             id: "route-casing",
             type: "line",
             source: "route",
@@ -169,6 +188,19 @@ export function useAppMap(theme: Theme, start: MapView) {
           under,
         );
       }
+      // Dots for "what's around me" results, on top of everything.
+      art.addSource("nearby", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+      art.addLayer({
+        id: "nearby-dots",
+        type: "circle",
+        source: "nearby",
+        paint: {
+          "circle-radius": ["interpolate", ["linear"], ["zoom"], 10, 5, 16, 9],
+          "circle-color": retro ? PALETTE.ink : "#ea4335",
+          "circle-stroke-color": retro ? "#ffd23f" : "#ffffff",
+          "circle-stroke-width": retro ? 3 : 2.5,
+        },
+      });
       setMap(art);
     });
 
@@ -180,7 +212,7 @@ export function useAppMap(theme: Theme, start: MapView) {
       labels?.remove();
       setMap(null);
     };
-  }, [theme]);
+  }, [theme, dark]);
 
   return { artHost, labelHost, map };
 }
@@ -245,6 +277,17 @@ const routeShown = new WeakSet<MLMap>();
 
 function hasRoute(map: MLMap): boolean {
   return routeShown.has(map);
+}
+
+// The other ways to get there, drawn paler under the chosen route.
+export function setAltLines(map: MLMap, routes: { line: LngLat[] }[], selected: number) {
+  const source = map.getSource("route-alt") as maplibregl.GeoJSONSource | undefined;
+  source?.setData({
+    type: "FeatureCollection",
+    features: routes
+      .map((r, i) => ({ type: "Feature" as const, properties: { i }, geometry: { type: "LineString" as const, coordinates: r.line } }))
+      .filter((_, i) => i !== selected),
+  });
 }
 
 export function setRouteLine(map: MLMap, coordinates: LngLat[] | null) {

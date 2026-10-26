@@ -3,7 +3,7 @@ import type { LngLat } from "../lib/geo";
 import type { SavedPlace } from "../lib/store";
 import { BUILDINGS, SHELVES, buildingsOnShelf, getBuilding, type ShelfId } from "../pixel/buildings";
 import { CARS } from "../pixel/cars";
-import type { Theme } from "../lib/settings";
+import type { Appearance, Theme } from "../lib/settings";
 import { CLASSIC_COLORS, PIN_SIZE, pinUrl } from "../pixel/classicMarkers";
 import { SpriteImg } from "./SpriteImg";
 
@@ -35,6 +35,8 @@ type MenuProps = {
   onCar: (id: string) => void;
   theme: Theme;
   onTheme: (theme: Theme) => void;
+  appearance: Appearance;
+  onAppearance: (value: Appearance) => void;
   voice: boolean;
   onVoice: (on: boolean) => void;
   onBackup: () => Promise<string>;
@@ -121,7 +123,7 @@ function PlacesTab({ places, onOpenPlace, onFrom, onTo, onEdit, theme }: MenuPro
   );
 }
 
-function LookTab({ theme, onTheme, voice, onVoice, car, onCar }: MenuProps) {
+function LookTab({ theme, onTheme, appearance, onAppearance, voice, onVoice, car, onCar }: MenuProps) {
   return (
     <div className="look">
       <h3 className="sec">Map style</h3>
@@ -135,6 +137,18 @@ function LookTab({ theme, onTheme, voice, onVoice, car, onCar }: MenuProps) {
           <span className="dim">Pixel-art map, buildings for your places, and a car to watch.</span>
         </button>
       </div>
+      {theme === "classic" && (
+        <>
+          <h3 className="sec">Day or night</h3>
+          <div className="modes" role="radiogroup" aria-label="Day or night">
+            {(["auto", "light", "dark"] as const).map((v) => (
+              <button key={v} role="radio" aria-checked={appearance === v} className={appearance === v ? "mode on" : "mode"} onClick={() => onAppearance(v)}>
+                {v === "auto" ? "Auto" : v === "light" ? "Day" : "Night"}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
       <h3 className="sec">Voice directions</h3>
       <button role="switch" aria-checked={voice} className={voice ? "switch on" : "switch"} onClick={() => onVoice(!voice)}>
         <span className="switch-knob" />
@@ -153,7 +167,7 @@ function LookTab({ theme, onTheme, voice, onVoice, car, onCar }: MenuProps) {
 function GarageTab({ car, onCar }: { car: string; onCar: (id: string) => void }) {
   return (
     <div>
-      <p className="dim hint">Pick the car for the CAR preview of your route.</p>
+      <p className="dim hint">Pick your car. It is the one you drive while navigating.</p>
       <ul className="car-grid">
         {CARS.map((c) => (
           <li key={c.id}>

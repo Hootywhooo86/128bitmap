@@ -22,6 +22,11 @@ It looks like a normal maps app by default. If you like, there is an optional **
 - **PREVIEW.** Try the whole thing from your couch: a simulated drive along your route that uses the same view, countdown and voice.
 - **Re-routes when you miss a turn.** If you leave the route it says "Rerouting…" and finds a new way from where you are.
 - **A detailed map.** Shops, restaurants, cafes, clinics, parking, bus and train stops, parks and landmarks show up with icons and names as you zoom in, with footprints and 3D buildings up close. **Tap any place** to select it, then set it as From or To. A **satellite** button (the layers button) switches to real imagery with readable names.
+- **Better address search.** Search uses two free OpenStreetMap services: Photon while you type, and Nominatim when the text looks like a street address ("10250 101 Street"), with results appearing as soon as the first answers. House numbers also show on the map when you zoom in close.
+- **Find nearby.** One tap on Restaurants, Coffee, Gas, Groceries, Parking, ATMs, Pharmacy, Hotels, Bars, Shopping, Transit, Parks or Washrooms lists the nearest ones (instantly, from the map itself) and drops dots on the map. Saved places named Home or Work get their own shortcut.
+- **Route options.** You get up to three routes with their time, distance and main road; tap one in the list or on the map to switch. The map falls back to a second routing server if the first is slow.
+- **Night map.** MENU → LOOK → Day or night (Auto follows your phone's dark mode).
+- **Open in Google Maps.** Links on the route and on any place hand the trip or place to the real Google Maps for anything this app is missing.
 - **Saved places.** Tap the map (or search) and press **SAVE**, for example Home, Work or the gym. Saved places show up when you type in From or To.
 - **Backup and restore** your places as a file, to move them to another phone.
 - **Opens where you are** the first time, like any maps app.
@@ -43,6 +48,7 @@ Everything in the retro look is drawn in code (`src/pixel/`), so there are no im
 
 Be aware, this is a personal-scale app built on free services:
 
+- **Search only knows OpenStreetMap.** Many businesses and some house numbers that Google has are simply not in it, so a few places will still be missing. Fixing that fully needs a paid or keyed search service.
 - **No live traffic**, no lane guidance and no public transit directions.
 - **Background guidance is Android-app only for now.** In a browser or on iPhone the app has to stay open with the screen on. The lock-screen notification is untested on real phones so far.
 - **The black-and-white always-on map isn't possible for an app.** Android draws the always-on display itself; apps can only supply the Live Update chip.

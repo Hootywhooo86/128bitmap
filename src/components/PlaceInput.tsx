@@ -49,7 +49,7 @@ export function PlaceInput({
   }
 
   const query = text.trim();
-  const searching = typed && query.length >= 3;
+  const searching = typed && query.length >= 2;
 
   useEffect(() => {
     if (!searching) return;
@@ -57,14 +57,20 @@ export function PlaceInput({
     const timer = setTimeout(async () => {
       setBusy(true);
       try {
-        setHits(await searchPlaces(query, near(), ctrl.signal));
+        const done = await searchPlaces(query, near(), ctrl.signal, (list) => {
+          if (!ctrl.signal.aborted) {
+            setHits(list);
+            setBusy(false);
+          }
+        });
+        if (!ctrl.signal.aborted) setHits(done);
         setActive(0);
       } catch {
         if (!ctrl.signal.aborted) setHits([]);
       } finally {
         if (!ctrl.signal.aborted) setBusy(false);
       }
-    }, 300);
+    }, 180);
     return () => {
       clearTimeout(timer);
       ctrl.abort();
