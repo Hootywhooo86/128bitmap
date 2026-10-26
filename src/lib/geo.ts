@@ -43,6 +43,49 @@ type NominatimHit = {
 // much better with street addresses ("10250 101 Street"), so it joins in when the text looks like one.
 
 const searchCache = new Map<string, Place[]>();
+
+// With a Geoapify key (free, from geoapify.com) search also uses their address database, which
+// covers house numbers in many more places than OpenStreetMap alone.
+let geoKey = "";
+export function setGeoKey(key: string) {
+  geoKey = key.trim();
+  searchCache.clear();
+}
+export const hasGeoKey = () => geoKey !== "";
+
+type GeoapifyProps = { formatted?: string; address_line1?: string; address_line2?: string; lat?: number; lon?: number; name?: string };
+
+function geoapifyToPlaces(body: { features?: { properties: GeoapifyProps }[]; results?: GeoapifyProps[] }): Place[] {
+  const list = body.results ?? body.features?.map((f) => f.properties) ?? [];
+  return list
+    .filter((r) => typeof r.lat === "number" && typeof r.lon === "number")
+    .map((r) => ({
+      label: r.address_line1 || r.name || r.formatted || "Place",
+      detail: r.address_line2 || "",
+      at: [r.lon as number, r.lat as number] as LngLat,
+    }));
+}
+
+async function searchGeoapify(query: string, near: LngLat | null, signal: AbortSignal): Promise<Place[]> {
+  const p = new URLSearchParams({ text: query, limit: "8", lang: "en", apiKey: geoKey });
+  if (near) p.set("bias", `proximity:${near[0].toFixed(4)},${near[1].toFixed(4)}`);
+  const res = await fetch(`https://api.geoapify.com/v1/geocode/autocomplete?${p}`, { signal });
+  if (!res.ok) throw new Error(`Search failed (${res.status})`);
+  return geoapifyToPlaces(await res.json());
+}
+
+// Used by the key check in the menu: returns an error message, or null if the key works.
+export async function checkGeoKey(key: string): Promise<string | null> {
+  try {
+    const p = new URLSearchParams({ text: "10250 101 Street Edmonton", limit: "1", apiKey: key.trim() });
+    const res = await fetch(`https://api.geoapify.com/v1/geocode/autocomplete?${p}`, { signal: AbortSignal.timeout(8000) });
+    if (res.status === 401 || res.status === 403) return "That key wasn't accepted. Check it and try again.";
+    if (!res.ok) return `The search service answered ${res.status}.`;
+    return geoapifyToPlaces(await res.json()).length ? null : "The key works, but the test search found nothing.";
+  } catch {
+    return "Couldn't reach the search service. Check your connection.";
+  }
+}
 let lastNominatim = 0;
 
 const looksLikeAddress = (q: string) => /^\d+[a-z]?\s+\S/i.test(q) && q.length >= 6;
@@ -87,7 +130,8 @@ export async function searchPlaces(
 
   let photon: Place[] = [];
   let nominatim: Place[] = [];
-  const publish = () => onUpdate?.(rank([...nominatim, ...photon]));
+  let geoapify: Place[] = [];
+  const publish = () => onUpdate?.(rank([...geoapify, ...nominatim, ...photon]));
 
   let nominatimAsked = false;
   const askNominatim = () => {
@@ -115,10 +159,20 @@ export async function searchPlaces(
     if (photon.length === 0 && !signal.aborted) await askNominatim();
   };
   const tasks: Promise<void>[] = [askPhoton()];
+  if (geoKey) {
+    tasks.push(
+      searchGeoapify(query, near, signal)
+        .then((r) => {
+          geoapify = r;
+          publish();
+        })
+        .catch(() => {}),
+    );
+  }
   if (looksLikeAddress(query)) tasks.push(askNominatim());
   const [first] = await Promise.allSettled(tasks);
   if (first.status === "rejected") throw first.reason;
-  const result = rank([...nominatim, ...photon]);
+  const result = rank([...geoapify, ...nominatim, ...photon]);
   if (result.length) searchCache.set(key, result);
   return result;
 }
@@ -158,6 +212,16 @@ function nominatimToPlace(hit: NominatimHit): Place {
 }
 
 export async function reverseLookup(at: LngLat): Promise<Place> {
+  if (geoKey) {
+    try {
+      const q = new URLSearchParams({ lat: String(at[1]), lon: String(at[0]), format: "json", lang: "en", apiKey: geoKey });
+      const res = await fetch(`https://api.geoapify.com/v1/geocode/reverse?${q}`, { signal: AbortSignal.timeout(3500) });
+      const hit = geoapifyToPlaces(await res.json())[0];
+      if (res.ok && hit) return { ...hit, at };
+    } catch {
+      // Fall back to the free services below.
+    }
+  }
   const params = new URLSearchParams({ lon: String(at[0]), lat: String(at[1]), lang: "en" });
   const photon = fetch(`https://photon.komoot.io/reverse?${params}`)
     .then((r) => r.json() as Promise<{ features?: PhotonFeature[] }>)

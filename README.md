@@ -27,6 +27,7 @@ It looks like a normal maps app by default. If you like, there is an optional **
 - **Route options.** You get up to three routes with their time, distance and main road; tap one in the list or on the map to switch. The map falls back to a second routing server if the first is slow.
 - **Night map.** MENU → LOOK → Day or night (Auto follows your phone's dark mode).
 - **Open in Google Maps.** Links on the route and on any place hand the trip or place to the real Google Maps for anything this app is missing.
+- **Worldwide address search (optional).** MENU → SEARCH takes a free [Geoapify](https://www.geoapify.com) key (3,000 searches a day, no card). With it, search and "tap the map" lookups also use Geoapify's address database, which has far better house-number coverage than OpenStreetMap alone. The key stays on your device.
 - **Saved places.** Tap the map (or search) and press **SAVE**, for example Home, Work or the gym. Saved places show up when you type in From or To.
 - **Backup and restore** your places as a file, to move them to another phone.
 - **Opens where you are** the first time, like any maps app.
@@ -40,7 +41,7 @@ Open **MENU → LOOK → Retro** to switch. You get the pixel-art map, a pulsing
 - **50 animated pixel buildings** for your saved places, on 10 shelves (the gym as a dungeon, work as a prison, home as a castle, and 47 more). A name like "Planet Fitness" or "Grandma's house" suggests a fitting one.
 - **10 pixel cars**. Pick yours in the menu and it is the car you drive, seen from behind with glowing tail lights, while you navigate (or **PREVIEW**).
 
-Everything in the retro look is drawn in code (`src/pixel/`), so there are no image files to manage. To see all of it, run `npm run dev` and open `/?sprites`.
+Everything in the retro look is drawn in code (`src/pixel/`), so there are no image files to manage. Sprites are designed on a small grid, then redrawn on a grid twice as fine (smoothed corners, lit and shaded edges, a one-pixel outline), and the map uses finer pixels with little grass, tree and water textures, so it reads as detailed pixel art rather than chunky blocks. To see all of it, run `npm run dev` and open `/?sprites`.
 
 ![Retro buildings and cars](docs/retro/buildings-and-cars.gif)
 
@@ -119,7 +120,7 @@ The map style, its icons and the common Latin fonts ship inside the app (`public
 
 ## Built with
 
-React + TypeScript + Vite, [MapLibre GL](https://maplibre.org/) for the map, free map data from [OpenFreeMap](https://openfreemap.org), satellite imagery from Esri (attribution shown; check their terms before a public launch), search from [Photon](https://photon.komoot.io), routes from the [FOSSGIS](https://routing.openstreetmap.de) OSRM servers, and [Capacitor](https://capacitorjs.com) for the phone apps. Fonts for the retro look: Press Start 2P and VT323 (SIL Open Font License), bundled. Map data © OpenStreetMap contributors.
+React + TypeScript + Vite, [MapLibre GL](https://maplibre.org/) for the map, free map data from [OpenFreeMap](https://openfreemap.org), satellite imagery from Esri (attribution shown; check their terms before a public launch), search from [Photon](https://photon.komoot.io), routes from the [FOSSGIS](https://routing.openstreetmap.de) OSRM servers, and [Capacitor](https://capacitorjs.com) for the phone apps. Font for the retro look: Pixelify Sans (SIL Open Font License), bundled. Map data © OpenStreetMap contributors.
 
 ## Roadmap
 

@@ -1,14 +1,19 @@
-/* Fonts are bundled (SIL Open Font License) so the app works offline. */
+/* Fonts are bundled (SIL Open Font License) so the app works offline. One clean pixel font, sized
+   up for headings and down for body text, so the older size rules stay readable. */
 @font-face {
-  font-family: "Press Start 2P";
-  src: url("./fonts/press-start-2p.woff2") format("woff2");
+  font-family: "Pixelify Head";
+  src: url("./fonts/pixelify-sans.woff2") format("woff2");
+  font-weight: 400 700;
   font-display: swap;
+  size-adjust: 140%;
 }
 
 @font-face {
-  font-family: "VT323";
-  src: url("./fonts/vt323.woff2") format("woff2");
+  font-family: "Pixelify Body";
+  src: url("./fonts/pixelify-sans.woff2") format("woff2");
+  font-weight: 400 700;
   font-display: swap;
+  size-adjust: 82%;
 }
 
 :root {
@@ -22,8 +27,8 @@
   --gold: #ffd23f;
   --violet: #7a4fd0;
   --shadow: 0 4px 0 0 #0e0c22;
-  --head: "Press Start 2P", ui-monospace, monospace;
-  --body: "VT323", ui-monospace, monospace;
+  --head: "Pixelify Head", ui-monospace, monospace;
+  --body: "Pixelify Body", ui-monospace, monospace;
 }
 
 * {
@@ -186,8 +191,9 @@ button {
   background: transparent;
   color: var(--ink);
   font-family: var(--body);
-  font-size: 24px;
+  font-size: 22px;
   padding: 0 4px;
+  text-overflow: ellipsis;
 }
 
 .place-input input::placeholder {
@@ -635,6 +641,7 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--body);
   font-size: 18px;
   line-height: 1.1;
   color: var(--cream);
@@ -1853,7 +1860,7 @@ button {
   min-height: 36px;
   padding: 0 6px;
   font-family: var(--head);
-  font-size: 9px;
+  font-size: 11px;
   color: var(--dim);
   background: var(--panel-deep);
   border: 3px solid var(--ink);
@@ -2281,4 +2288,53 @@ button {
 
 .summary > div:first-child {
   white-space: nowrap;
+}
+
+
+.nav-speed,
+.nav-demo {
+  font-family: var(--head);
+}
+
+.theme-classic .nav-speed,
+.theme-classic .nav-demo {
+  font-family: var(--body);
+}
+
+.dark.theme-classic .summary {
+  background: #292a2d;
+}
+
+.dark.theme-classic .big {
+  color: #81c995;
+}
+
+.search-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.steps-help {
+  margin: 0;
+  padding-left: 22px;
+}
+
+.search-tab a {
+  color: inherit;
+}
+
+.dark.theme-classic .alt b {
+  color: #81c995;
+}
+
+.tabs {
+  flex-wrap: wrap;
+}
+
+.search-tab .sec,
+.search-tab .hint,
+.search-tab .note,
+.search-tab .small-print {
+  margin: 0;
 }

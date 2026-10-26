@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import type { LngLat } from "../lib/geo";
+import { checkGeoKey, type LngLat } from "../lib/geo";
 import type { SavedPlace } from "../lib/store";
 import { BUILDINGS, SHELVES, buildingsOnShelf, getBuilding, type ShelfId } from "../pixel/buildings";
 import { CARS } from "../pixel/cars";
@@ -7,7 +7,7 @@ import type { Appearance, Theme } from "../lib/settings";
 import { CLASSIC_COLORS, PIN_SIZE, pinUrl } from "../pixel/classicMarkers";
 import { SpriteImg } from "./SpriteImg";
 
-export type MenuTab = "places" | "look" | "backup";
+export type MenuTab = "places" | "look" | "search" | "backup";
 
 export type Draft = {
   id?: string;
@@ -19,6 +19,7 @@ export type Draft = {
 const TABS: { id: MenuTab; label: string }[] = [
   { id: "places", label: "PLACES" },
   { id: "look", label: "LOOK" },
+  { id: "search", label: "SEARCH" },
   { id: "backup", label: "BACKUP" },
 ];
 
@@ -39,6 +40,8 @@ type MenuProps = {
   onAppearance: (value: Appearance) => void;
   voice: boolean;
   onVoice: (on: boolean) => void;
+  geoKey: string;
+  onGeoKey: (key: string) => void;
   onBackup: () => Promise<string>;
   onRestore: (file: File) => Promise<string>;
 };
@@ -67,6 +70,7 @@ export function MenuSheet(p: MenuProps) {
       <div className="sheet-body">
         {p.tab === "places" && <PlacesTab {...p} />}
         {p.tab === "look" && <LookTab {...p} />}
+        {p.tab === "search" && <SearchTab geoKey={p.geoKey} onGeoKey={p.onGeoKey} />}
         {p.tab === "backup" && <BackupTab count={p.places.length} onBackup={p.onBackup} onRestore={p.onRestore} />}
       </div>
     </section>
@@ -178,6 +182,70 @@ function GarageTab({ car, onCar }: { car: string; onCar: (id: string) => void })
           </li>
         ))}
       </ul>
+    </div>
+  );
+}
+
+function SearchTab({ geoKey, onGeoKey }: { geoKey: string; onGeoKey: (key: string) => void }) {
+  const [text, setText] = useState(geoKey);
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    const key = text.trim();
+    if (!key) {
+      onGeoKey("");
+      setNote("Removed. Search uses the free services only.");
+      return;
+    }
+    setBusy(true);
+    setNote("Checking…");
+    const problem = await checkGeoKey(key);
+    setBusy(false);
+    if (problem) {
+      setNote(problem);
+      return;
+    }
+    onGeoKey(key);
+    setNote("Saved. Address search now uses your key too.");
+  };
+  return (
+    <div className="search-tab">
+      <h3 className="sec">Address search</h3>
+      <p className="hint">
+        Search uses free OpenStreetMap services, which miss some house numbers and businesses. A free Geoapify key
+        (3,000 searches a day, no card) adds a much bigger worldwide address database.
+      </p>
+      <input
+        className="text-input"
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Geoapify API key"
+        aria-label="Geoapify API key"
+        autoCapitalize="off"
+        autoCorrect="off"
+        spellCheck={false}
+      />
+      <div className="backup-actions">
+        <button className="pixel-btn go-from" onClick={() => void save()} disabled={busy}>
+          SAVE KEY
+        </button>
+      </div>
+      {note && (
+        <p className="note" role="status">
+          {note}
+        </p>
+      )}
+      <ol className="hint steps-help">
+        <li>
+          Make a free account at{" "}
+          <a href="https://myprojects.geoapify.com" target="_blank" rel="noreferrer">
+            myprojects.geoapify.com
+          </a>
+        </li>
+        <li>Create a project and copy its API key.</li>
+        <li>Paste it here and tap Save.</li>
+      </ol>
+      <p className="small-print">The key stays on this device. Searches you type are sent to Geoapify while it is set.</p>
     </div>
   );
 }

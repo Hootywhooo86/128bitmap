@@ -77,3 +77,23 @@ export function saveAppearance(value: Appearance) {
     // Not remembered in private mode.
   }
 }
+
+// Optional Geoapify key: worldwide address search with far better house-number coverage.
+const GEOKEY = "128bitmaps.geoapify";
+
+export function loadGeoKey(): string {
+  try {
+    return localStorage.getItem(GEOKEY) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+export function saveGeoKey(key: string) {
+  try {
+    if (key) localStorage.setItem(GEOKEY, key);
+    else localStorage.removeItem(GEOKEY);
+  } catch {
+    // Not remembered in private mode.
+  }
+}

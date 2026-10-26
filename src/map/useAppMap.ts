@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
 import type { Map as MLMap, StyleSpecification } from "maplibre-gl";
 import { PALETTE, retroStyle } from "./retroStyle";
+import { makeTexture, textureIds } from "./texture";
 import type { Feature, LineString } from "geojson";
 import type { LngLat } from "../lib/geo";
 import type { Theme } from "../lib/settings";
@@ -11,9 +12,9 @@ import workerUrl from "./maplibre-worker?worker&url";
 
 maplibregl.setWorkerUrl(workerUrl);
 
-// How many screen pixels each map pixel covers. 3 gives a clear chunky look
-// while keeping streets readable.
-export const CHUNK = 3;
+// How many screen pixels each map pixel covers. 2 is fine enough to look detailed while still
+// clearly pixel art; the old 3 looked like a 16-bit game.
+export const CHUNK = 2;
 
 const LABEL_LAYERS = new Set(["road-label", "water-label", "place-label"]);
 
@@ -77,6 +78,11 @@ export function useAppMap(theme: Theme, dark: boolean, start: MapView) {
       pitchWithRotate: false,
       maxPitch: 60,
     });
+    // Pixel textures for grass, trees and water are drawn the first time the style asks for them.
+    art.on("styleimagemissing", (e) => {
+      const data = makeTexture(e.id);
+      if (data && !art.hasImage(e.id)) art.addImage(e.id, data, { pixelRatio: 1 });
+    });
     art.touchZoomRotate.disableRotation();
     art.touchPitch.disable();
     art.on("moveend", () => {
@@ -114,6 +120,13 @@ export function useAppMap(theme: Theme, dark: boolean, start: MapView) {
     }
 
     art.on("load", () => {
+      if (retro) {
+        // The ground itself is a pattern too, which does not ask for its picture on its own.
+        for (const id of textureIds()) {
+          const data = makeTexture(id);
+          if (data && !art.hasImage(id)) art.addImage(id, data, { pixelRatio: 1 });
+        }
+      }
       art.addSource("route", { type: "geojson", data: line([]) });
       art.addSource("route-alt", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
       if (retro) {

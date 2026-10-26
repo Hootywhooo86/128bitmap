@@ -84,7 +84,7 @@ export function retroStyle(): StyleSpecification {
       omt: { type: "vector", url: "https://tiles.openfreemap.org/planet" },
     },
     layers: [
-      { id: "land", type: "background", paint: { "background-color": PALETTE.grass } },
+      { id: "land", type: "background", paint: { "background-color": PALETTE.grass, "background-pattern": "tex-grass" } },
       {
         id: "landuse-town",
         type: "fill",
@@ -99,7 +99,7 @@ export function retroStyle(): StyleSpecification {
         source: "omt",
         "source-layer": "landcover",
         filter: ["==", ["get", "class"], "wood"],
-        paint: { "fill-color": PALETTE.forest },
+        paint: { "fill-pattern": "tex-forest" },
       },
       {
         id: "landcover-grass",
@@ -107,7 +107,7 @@ export function retroStyle(): StyleSpecification {
         source: "omt",
         "source-layer": "landcover",
         filter: ["match", ["get", "class"], ["grass", "farmland", "wetland"], true, false],
-        paint: { "fill-color": PALETTE.meadow },
+        paint: { "fill-pattern": "tex-meadow" },
       },
       {
         id: "landcover-sand",
@@ -130,7 +130,7 @@ export function retroStyle(): StyleSpecification {
         type: "fill",
         source: "omt",
         "source-layer": "park",
-        paint: { "fill-color": PALETTE.park, "fill-outline-color": PALETTE.forest },
+        paint: { "fill-pattern": "tex-park", "fill-outline-color": PALETTE.forest },
       },
       {
         id: "water-edge",
@@ -145,7 +145,7 @@ export function retroStyle(): StyleSpecification {
         source: "omt",
         "source-layer": "water",
         filter: ["!=", ["get", "brunnel"], "tunnel"],
-        paint: { "fill-color": PALETTE.water },
+        paint: { "fill-pattern": "tex-water" },
       },
       {
         id: "river",
@@ -163,6 +163,15 @@ export function retroStyle(): StyleSpecification {
         minzoom: 11,
         filter: ["match", ["get", "class"], ["runway", "taxiway"], true, false],
         paint: { "line-color": PALETTE.runway, "line-width": byZoom([[11, 2], [16, 24]]) },
+      },
+      {
+        // A soft drop shadow so buildings stand off the ground.
+        id: "building-shadow",
+        type: "fill",
+        source: "omt",
+        "source-layer": "building",
+        minzoom: 15,
+        paint: { "fill-color": "#1f3a1f", "fill-opacity": 0.28, "fill-translate": [3, 3] },
       },
       {
         id: "building",

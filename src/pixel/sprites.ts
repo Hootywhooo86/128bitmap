@@ -6,6 +6,8 @@ export type Sprite = {
   colors: Record<string, string>;
 };
 
+import { Grid, gridToDataUrl } from "./draw";
+
 const INK = "#232042";
 
 export const START_FLAG: Sprite = {
@@ -106,6 +108,13 @@ export function spriteToImageData(sprite: Sprite, scale: number): ImageData {
   return canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height);
 }
 
+// The sprite on a grid twice as fine (smoothed corners, lit and shaded edges), like the buildings
+// and cars. The picture is twice as big in pixels, so callers size it with CSS.
 export function spriteToDataUrl(sprite: Sprite, scale: number): string {
-  return spriteToCanvas(sprite, scale).toDataURL();
+  const h = sprite.grid.length;
+  const w = Math.max(...sprite.grid.map((row) => row.length));
+  const g = new Grid(w, h);
+  sprite.grid.forEach((row, y) => [...row].forEach((ch, x) => g.px(x, y, sprite.colors[ch] ?? null)));
+  g.finish(false);
+  return gridToDataUrl(g, `s:${scale}:${sprite.grid.join("")}`);
 }

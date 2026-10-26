@@ -9,6 +9,7 @@ import {
   formatDuration,
   getRoute,
   getRoutes,
+  setGeoKey,
   googleMapsUrl,
   googlePlaceUrl,
   MODES,
@@ -37,7 +38,7 @@ import { CATEGORIES, findNearby, setNearby, type Category, type Nearby } from ".
 import { setAltLines, setRouteLine, setSatellite, useAppMap } from "./map/useAppMap";
 import { NavBanner, NavBar } from "./components/NavUI";
 import { Navigator, type NavState } from "./nav/Navigator";
-import { loadAppearance, loadMode, loadTheme, loadVoice, saveAppearance, saveMode, saveTheme, saveVoice, type Appearance, type Theme } from "./lib/settings";
+import { loadAppearance, loadGeoKey, saveGeoKey, loadMode, loadTheme, loadVoice, saveAppearance, saveMode, saveTheme, saveVoice, type Appearance, type Theme } from "./lib/settings";
 import { CLASSIC_COLORS, DOT_SIZE, PIN_SIZE, dotUrl, pinUrl } from "./pixel/classicMarkers";
 import { getBuilding, suggestBuilding } from "./pixel/buildings";
 import { DROP_PIN, GOAL_FLAG, START_FLAG, YOU_DOT, spriteToDataUrl, type Sprite } from "./pixel/sprites";
@@ -595,6 +596,17 @@ export default function App() {
     saveTheme(next);
   };
 
+  const [geoKey, setGeoKeyState] = useState(() => {
+    const key = loadGeoKey();
+    setGeoKey(key);
+    return key;
+  });
+  const changeGeoKey = (key: string) => {
+    setGeoKey(key);
+    saveGeoKey(key);
+    setGeoKeyState(key);
+  };
+
   const changeAppearance = (next: Appearance) => {
     setAppearance(next);
     saveAppearance(next);
@@ -918,6 +930,8 @@ export default function App() {
           theme={theme}
           onTheme={changeTheme}
           appearance={appearance}
+          geoKey={geoKey}
+          onGeoKey={changeGeoKey}
           onAppearance={changeAppearance}
           voice={voice}
           onVoice={changeVoice}
@@ -964,7 +978,7 @@ export default function App() {
 
       <footer className="credits">
         © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> ·{" "}
-        <a href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a> · Photon · OSRM
+        <a href="https://openfreemap.org" target="_blank" rel="noreferrer">OpenFreeMap</a> · Photon · OSRM{geoKey && <> · <a href="https://www.geoapify.com" target="_blank" rel="noreferrer">Geoapify</a></>}
       </footer>
       </div>
     </div>
