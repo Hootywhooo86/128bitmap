@@ -18,6 +18,7 @@ It looks like a normal maps app by default. If you like, there is an optional **
 - **A 3D driving view.** The map tilts and turns to face the way the road goes, with you near the bottom of the screen and the map zooming out as you speed up. The **2D / 3D** button flattens it. Drag the map to look around and tap **RECENTER** to snap back. In the classic look you are a blue arrow lying on the road; in the retro look you are a pixel car seen from behind, with the buildings rising up in chunky 3D.
 - **Smooth, on-the-road position.** GPS only reports about once a second, so the app snaps you to the road, keeps moving you at your speed between reports, steers the camera by the road's direction (not the jittery GPS compass) and ignores wild one-off readings.
 - **Voice directions in three steps.** A heads-up ("In half a mile, turn left onto 87 Avenue"), a reminder, and "Turn left onto 87 Avenue" right at the turn. The distances scale with your speed. Turn it off from the speaker button or the menu.
+- **Keeps guiding with the screen off (Android app).** A background service asks the phone for its most accurate (fused, high-accuracy) GPS about once a second, keeps the voice going, and shows the next turn, distance and arrival time in an ongoing notification on the lock screen, with an **End** button. On Android 16 (Pixel) it is a "Live Update", so the next turn also appears as a chip on the lock screen and always-on display. The app can also be opened over the lock screen without unlocking. Allow location and notifications when asked.
 - **PREVIEW.** Try the whole thing from your couch: a simulated drive along your route that uses the same view, countdown and voice.
 - **Re-routes when you miss a turn.** If you leave the route it says "Rerouting…" and finds a new way from where you are.
 - **A detailed map.** Shops, restaurants, cafes, clinics, parking, bus and train stops, parks and landmarks show up with icons and names as you zoom in, with footprints and 3D buildings up close. **Tap any place** to select it, then set it as From or To. A **satellite** button (the layers button) switches to real imagery with readable names.
@@ -43,7 +44,8 @@ Everything in the retro look is drawn in code (`src/pixel/`), so there are no im
 Be aware, this is a personal-scale app built on free services:
 
 - **No live traffic**, no lane guidance and no public transit directions.
-- **Guidance needs the app open with the screen on.** It asks the phone to keep the screen awake. It doesn't navigate in the background yet.
+- **Background guidance is Android-app only for now.** In a browser or on iPhone the app has to stay open with the screen on. The lock-screen notification is untested on real phones so far.
+- **The black-and-white always-on map isn't possible for an app.** Android draws the always-on display itself; apps can only supply the Live Update chip.
 - **Needs an internet connection** for the map, search and routes (there are no offline maps).
 - Walking and cycling routes come from a free community server, and routes for a big trip can take a moment.
 
@@ -120,4 +122,4 @@ React + TypeScript + Vite, [MapLibre GL](https://maplibre.org/) for the map, fre
 3. ~~Saved places, Drive/Walk/Bike, backup~~
 4. ~~Optional retro look with buildings and cars~~
 5. ~~Installable app, Android and iPhone projects~~
-6. Next: navigation that keeps working with the screen off, live traffic, offline maps, sync places between devices, share a place with a friend
+6. Next: iPhone background guidance and Live Activities (needs a Mac), live traffic, offline maps, sync places between devices, share a place with a friend

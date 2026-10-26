@@ -243,6 +243,10 @@ export default function App() {
         getRoute: (a, b, signal) => getRoute(a, b, signal, modeRef.current),
         mode: () => modeRef.current,
         car: () => carRef.current,
+        onEnd: () => {
+          g.stop();
+          setNav(null);
+        },
       },
       theme === "retro",
     );

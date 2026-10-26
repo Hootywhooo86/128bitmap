@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import type { LngLat } from "./geo";
+import { Guidance, hasBackgroundGuidance, nativeVoice, setServiceUp } from "./guidance";
 
 // The same code runs in a browser and inside the Android/iPhone app.
 // Inside the app we use the phone's native location and share sheet, which are more reliable
@@ -68,13 +69,48 @@ export async function onBackButton(handler: () => boolean): Promise<() => void> 
 export type Fix = { at: LngLat; heading: number | null; speed: number | null; accuracy: number | null };
 
 // Follows your position while navigating. Returns a function that stops following.
-export async function watchPosition(onFix: (fix: Fix) => void, onError: (message: string) => void): Promise<() => void> {
+export async function watchPosition(
+  onFix: (fix: Fix) => void,
+  onError: (message: string) => void,
+  background?: { title: string; text: string; end: string; onEnd: () => void },
+): Promise<() => void> {
   const toFix = (c: { latitude: number; longitude: number; heading?: number | null; speed?: number | null; accuracy?: number }): Fix => ({
     at: [c.longitude, c.latitude],
     heading: typeof c.heading === "number" && !Number.isNaN(c.heading) ? c.heading : null,
     speed: typeof c.speed === "number" && !Number.isNaN(c.speed) ? c.speed : null,
     accuracy: typeof c.accuracy === "number" ? c.accuracy : null,
   });
+  // Android: a foreground service with the fused (best available) GPS, which keeps going with the
+  // screen off and shows the next turn on the lock screen.
+  if (isNative() && hasBackgroundGuidance() && background) {
+    try {
+      const access = await Guidance.requestAccess();
+      if (!access.location) {
+        onError("Location is off for this app. Turn it on in Settings to get directions as you move.");
+        return () => {};
+      }
+      const fixHandle = await Guidance.addListener("fix", (f) =>
+        onFix({
+          at: [f.lng, f.lat],
+          heading: f.heading >= 0 ? f.heading : null,
+          speed: f.speed >= 0 ? f.speed : null,
+          accuracy: f.accuracy >= 0 ? f.accuracy : null,
+        }),
+      );
+      const endHandle = await Guidance.addListener("end", background.onEnd);
+      await Guidance.start({ title: background.title, text: background.text, end: background.end });
+      setServiceUp(true);
+      void Guidance.showOnLock({ on: true });
+      return () => {
+        setServiceUp(false);
+        void fixHandle.remove();
+        void endHandle.remove();
+        void Guidance.stop();
+      };
+    } catch {
+      // Fall through to the ordinary location watch below.
+    }
+  }
   if (isNative()) {
     const { Geolocation } = await import("@capacitor/geolocation");
     const perm = await Geolocation.requestPermissions();
@@ -107,6 +143,10 @@ export async function watchPosition(onFix: (fix: Fix) => void, onError: (message
 
 // Spoken directions use the device's own voice, so they work offline and cost nothing.
 export function speak(text: string) {
+  if (nativeVoice()) {
+    void Guidance.speak({ text });
+    return;
+  }
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
   try {
     window.speechSynthesis.cancel();
@@ -117,6 +157,7 @@ export function speak(text: string) {
 }
 
 export function stopSpeaking() {
+  if (nativeVoice()) void Guidance.hush();
   try {
     if (typeof window !== "undefined" && "speechSynthesis" in window) window.speechSynthesis.cancel();
   } catch {

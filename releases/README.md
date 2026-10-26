@@ -21,6 +21,6 @@ It is not for the Play Store and is signed with a throwaway debug key.
 - **MENU → LOOK → Retro** switches to the pixel look.
 - The back button closes menus first, and only then leaves the app.
 
-Guidance works while the app is open with the screen on. It does not yet navigate with the screen off.
+Allow **location** and **notifications** when asked. While navigating, lock the phone: guidance keeps going, the voice keeps talking, and the next turn shows in a notification on the lock screen (on Android 16 Pixels as a Live Update chip). Tap it to come back. If the phone stops guiding when locked, check Settings → Apps → 128BITMAPS → Battery → Unrestricted.
 
 To rebuild it yourself: `npm run build:app`, then `cd android && ./gradlew assembleDebug`.

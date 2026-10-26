@@ -1,6 +1,7 @@
 import * as maplibregl from "maplibre-gl";
 import type { Map as MLMap, Marker } from "maplibre-gl";
-import { usesMiles, type LngLat, type Mode, type Route } from "../lib/geo";
+import { formatDistance, formatDuration, usesMiles, type LngLat, type Mode, type Route } from "../lib/geo";
+import { Guidance, nativeVoice } from "../lib/guidance";
 import { keepScreenAwake, speak, stopSpeaking, watchPosition, type Fix } from "../lib/platform";
 import { carRearUrl } from "../pixel/cars";
 import { angleDiff, cumulative, easeAngle, pointAt, routeBearing, snapToRoute } from "./geometry";
@@ -36,6 +37,8 @@ export type NavEvents = {
   mode: () => Mode;
   // Which pixel car to show in the retro look.
   car: () => string;
+  // The "End" button on the lock-screen notification was tapped.
+  onEnd: () => void;
 };
 
 // Distances read out loud, in the units the person's device uses.
@@ -78,6 +81,8 @@ export class Navigator {
   private lastEmit = 0;
   private lastKey = "";
   private lastSprite = "";
+  private lastNotice = 0;
+  private lateStop: (() => void) | null = null;
 
   // Where we know you are (from the last fix) and what we show.
   private targetAlong = 0;
@@ -206,7 +211,12 @@ export class Navigator {
       this.stopSim = this.simulate();
       return;
     }
-    const stop = await watchPosition(this.onFix, (message) => this.emit({ error: message }));
+    const stop = await watchPosition(this.onFix, (message) => this.emit({ error: message }), {
+      title: "Navigating",
+      text: "Finding your position…",
+      end: "End",
+      onEnd: () => this.ev.onEnd(),
+    });
     // If navigation was stopped while the position prompt was open, stop following at once.
     if (this.finished || this.el !== el) stop();
     else this.stopWatch = stop;
@@ -302,6 +312,13 @@ export class Navigator {
       this.dispHeading = off ? (this.gpsHeading ?? 0) : routeBearing(route.line, this.cum, this.targetAlong);
       this.camBearing = this.dispHeading;
       this.emitNow(true);
+    }
+    // With the screen off the browser stops drawing frames, so keep the countdown, voice and
+    // lock-screen notification going straight from the position updates.
+    if (document.hidden && this.dispPos) {
+      this.dispAlong = this.targetAlong;
+      this.dispPos = off && this.raw ? this.raw : pointAt(route.line, this.cum, this.targetAlong);
+      this.emitNow(false);
     }
     if (total - this.targetAlong <= ARRIVE_WITHIN && !this.rerouting && !off) this.arrive();
   };
@@ -439,6 +456,7 @@ export class Navigator {
       return;
     }
     this.lastKey = key;
+    this.pushNotice(text, step.icon, nextDist, left, remaining, total);
     this.emit({
       phase: this.state.phase === "arrived" ? "arrived" : "active",
       pos: this.dispPos,
@@ -455,6 +473,22 @@ export class Navigator {
       error: null,
     });
     this.speakStages(next, nextDist, text, then);
+  }
+
+  // Keeps the lock-screen notification in step with the banner (Android).
+  private pushNotice(text: string, icon: string, dist: number, left: number, remaining: number, total: number) {
+    if (!nativeVoice()) return;
+    const now = performance.now();
+    if (now - this.lastNotice < 900) return;
+    this.lastNotice = now;
+    const away = this.rerouting || (this.offRoute && this.offCount >= 2);
+    void Guidance.update({
+      title: away ? "↻ Rerouting…" : `${icon} ${formatDistance(dist)}`,
+      text: away ? "Finding a new way" : `${text} · ${formatDuration(left)} · ${formatDistance(remaining)} left`,
+      short: away ? "" : formatDistance(dist),
+      percent: Math.round((1 - remaining / total) * 100),
+      end: "End",
+    });
   }
 
   // Three calls per turn, timed by how fast you are going: a heads-up, a reminder, and "now".
@@ -512,8 +546,6 @@ export class Navigator {
     if (this.finished) return;
     this.finished = true;
     cancelAnimationFrame(this.frameId);
-    this.stopWatch?.();
-    this.stopWatch = null;
     this.stopSim?.();
     this.stopSim = null;
     this.stopAwake?.();
@@ -523,6 +555,17 @@ export class Navigator {
     if (end) this.marker?.setLngLat(end);
     this.emit({ phase: "arrived", nextText: "You have arrived", nextIcon: "★", nextDist: 0, thenText: null, remainingMeters: 0, remainingSeconds: 0, speed: 0 });
     if (this.voice) speak("You have arrived");
+    if (nativeVoice()) void Guidance.update({ title: "★ You have arrived", text: "Trip complete", short: "", percent: 100, end: "Done" });
+    // Let the last words finish before the background service (and its voice) shuts down.
+    this.lateStop = this.stopWatch;
+    this.stopWatch = null;
+    window.setTimeout(() => this.runLateStop(), 6000);
+  }
+
+  private runLateStop() {
+    const stop = this.lateStop;
+    this.lateStop = null;
+    stop?.();
   }
 
   setVoice(on: boolean) {
@@ -557,6 +600,7 @@ export class Navigator {
     this.abort?.abort();
     this.stopWatch?.();
     this.stopWatch = null;
+    this.runLateStop();
     this.stopSim?.();
     this.stopSim = null;
     this.stopAwake?.();
