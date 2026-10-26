@@ -51,3 +51,38 @@ export function bearing(a: LngLat, b: LngLat) {
   const dy = b[1] - a[1];
   return ((Math.atan2(dx, dy) * 180) / Math.PI + 360) % 360;
 }
+
+// The point a given number of metres along the route.
+export function pointAt(line: LngLat[], cum: number[], along: number): LngLat {
+  const total = cum[cum.length - 1] ?? 0;
+  const d = Math.min(Math.max(along, 0), total);
+  let lo = 0;
+  let hi = cum.length - 1;
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (cum[mid] <= d) lo = mid;
+    else hi = mid;
+  }
+  const span = cum[hi] - cum[lo] || 1;
+  const t = Math.min(1, Math.max(0, (d - cum[lo]) / span));
+  const a = line[lo];
+  const b = line[hi];
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
+}
+
+// Which way the road is heading at a point on the route, looking a little way ahead
+// so the view steadies into a turn instead of snapping to each tiny kink.
+export function routeBearing(line: LngLat[], cum: number[], along: number, look = 20): number {
+  const a = pointAt(line, cum, along - 4);
+  const b = pointAt(line, cum, along + look);
+  return bearing(a, b);
+}
+
+// Signed shortest turn from one compass angle to another, in degrees (-180 to 180).
+export function angleDiff(from: number, to: number) {
+  return ((((to - from) % 360) + 540) % 360) - 180;
+}
+
+export function easeAngle(from: number, to: number, k: number) {
+  return (from + angleDiff(from, to) * Math.min(1, k) + 360) % 360;
+}

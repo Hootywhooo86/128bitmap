@@ -261,3 +261,92 @@ export function carFrameUrl(id: string, frame: number): string {
 
 export const CAR_W = 24;
 export const CAR_H = 14;
+
+
+// ---- Rear view: what you see from the chase camera while driving ----
+
+type Rear = {
+  body: string;
+  dark: string;
+  w: number; // body width in pixels
+  top: number; // row the roof starts on
+  wheel?: number; // wheel height
+  sign?: boolean; // roof sign (taxi)
+  spoiler?: boolean;
+  hover?: boolean;
+  open?: boolean; // no roof (go-kart)
+};
+
+const REAR: Record<string, Rear> = {
+  muscle: { body: C.red, dark: C.redD, w: 14, top: 4 },
+  taxi: { body: C.yellow, dark: C.yellowD, w: 14, top: 4, sign: true },
+  van: { body: C.white, dark: C.grayL, w: 14, top: 1 },
+  monster: { body: C.green, dark: C.greenD, w: 14, top: 3, wheel: 9 },
+  kart: { body: C.orange, dark: C.orangeD, w: 10, top: 8, open: true },
+  delivery: { body: C.white, dark: C.grayL, w: 16, top: 0 },
+  hover: { body: C.teal, dark: C.tealD, w: 14, top: 5, hover: true },
+  bus: { body: C.yellow, dark: C.yellowD, w: 16, top: 0 },
+  sports: { body: C.pink, dark: C.pinkD, w: 16, top: 6, spoiler: true },
+  pickup: { body: C.blue, dark: C.blueD, w: 14, top: 4 },
+};
+
+function drawRear(g: Grid, f: number, id: string) {
+  const r = REAR[id] ?? REAR.muscle;
+  const x0 = Math.floor((20 - r.w) / 2);
+  const bottom = 13;
+  const wheelH = r.wheel ?? 4;
+  if (!r.hover) {
+    g.rect(x0 - 1, bottom - wheelH + 1, 3, wheelH, C.night);
+    g.rect(x0 + r.w - 2, bottom - wheelH + 1, 3, wheelH, C.night);
+  }
+  // body
+  g.rect(x0, r.top, r.w, bottom - r.top - (r.hover ? 1 : 0), r.body);
+  g.rect(x0, bottom - 4, r.w, 1, r.dark);
+  g.vline(x0 + r.w - 1, r.top, bottom - r.top - (r.hover ? 1 : 0), r.dark);
+  // rear window
+  if (!r.open) {
+    const winTop = r.top + 1;
+    const winH = r.top >= 5 ? 2 : Math.min(4, bottom - r.top - 6);
+    g.rect(x0 + 2, winTop, r.w - 4, Math.max(2, winH), C.glassD);
+    g.px(x0 + 3, winTop, C.glass);
+  } else {
+    // a little driver's helmet
+    g.rect(8, r.top - 3, 3, 3, C.red);
+    g.px(9, r.top - 2, C.glass);
+  }
+  if (r.sign) g.rect(8, 1, 4, 2, C.white);
+  if (r.spoiler) g.rect(x0 - 1, r.top - 1, r.w + 2, 1, C.night);
+  // tail lights and number plate
+  const light = f % 2 ? C.red : "#ff8a8a";
+  g.rect(x0, bottom - 3, 2, 2, light);
+  g.rect(x0 + r.w - 2, bottom - 3, 2, 2, light);
+  g.rect(9, bottom - 2, 2, 1, C.white);
+  if (r.hover) {
+    g.late(() => {
+      const glow = f % 2 ? "#ff5ea8cc" : "#3ddcc8cc";
+      g.hline(x0, bottom, r.w, glow);
+      g.hline(x0 + 2, bottom + 1, r.w - 4, glow);
+    });
+  } else {
+    // exhaust puff
+    g.px(x0 + 3, bottom + 1, f % 2 ? "#ffffff66" : "#ffffff33");
+  }
+}
+
+const rearUrls = new Map<string, string>();
+
+export function carRearUrl(id: string, frame: number): string {
+  const f = ((frame % 4) + 4) % 4;
+  const key = `r:${id}:${f}`;
+  const hit = rearUrls.get(key);
+  if (hit) return hit;
+  const g = new Grid(20, 16);
+  drawRear(g, f, id);
+  g.finish();
+  const url = gridToDataUrl(g, key);
+  rearUrls.set(key, url);
+  return url;
+}
+
+export const REAR_W = 20;
+export const REAR_H = 16;

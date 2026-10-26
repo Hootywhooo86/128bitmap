@@ -29,7 +29,6 @@ import {
   savedToPlace,
   type SavedPlace,
 } from "./lib/store";
-import { Driver } from "./map/drive";
 import { PlaceMarkers } from "./map/placeMarkers";
 import { setRouteLine, setSatellite, useAppMap } from "./map/useAppMap";
 import { NavBanner, NavBar } from "./components/NavUI";
@@ -45,7 +44,6 @@ const DEFAULT_VIEW = { center: [-113.4938, 53.5461] as LngLat, zoom: 11 };
 type Trip = { from: Place | null; to: Place | null };
 type Sheet = { kind: "menu"; tab: MenuTab } | { kind: "editor"; draft: Draft } | null;
 type Card = { kind: "pin"; place: Place } | { kind: "saved"; id: string } | null;
-type DriveState = { status: "idle" | "driving" | "arrived"; progress: number; left: number };
 
 function loadTrip(): Trip {
   try {
@@ -129,17 +127,17 @@ export default function App() {
   const [showSteps, setShowSteps] = useState(false);
   const [card, setCard] = useState<Card>(null);
   const [sheet, setSheet] = useState<Sheet>(null);
-  const [drive, setDrive] = useState<DriveState>({ status: "idle", progress: 0, left: 0 });
   const [you, setYou] = useState<LngLat | null>(null);
   const panelRef = useRef<HTMLElement>(null);
   const markers = useRef<{ from?: Marker; to?: Marker; you?: Marker; drop?: Marker }>({});
   const placeMarkers = useRef<PlaceMarkers | null>(null);
-  const driver = useRef<Driver | null>(null);
+  const carRef = useRef(car);
   const guidance = useRef<Navigator | null>(null);
   const lookup = useRef(0);
-  const live = useRef({ sheet, drive, card, nav, theme });
+  const live = useRef({ sheet, card, nav, theme });
   useEffect(() => {
-    live.current = { sheet, drive, card, nav, theme };
+    live.current = { sheet, card, nav, theme };
+    carRef.current = car;
   });
 
   const icons = useMemo(
@@ -226,6 +224,11 @@ export default function App() {
     if (map && theme === "classic") setSatellite(map, satellite);
   }, [map, theme, satellite]);
 
+  // For tests: `?debug` lets a script read the camera.
+  useEffect(() => {
+    if (map && location.search.includes("debug")) (window as unknown as { __map: typeof map }).__map = map;
+  }, [map]);
+
   // Guides you along the route using your real position.
   useEffect(() => {
     if (!map) return;
@@ -239,8 +242,9 @@ export default function App() {
         },
         getRoute: (a, b, signal) => getRoute(a, b, signal, modeRef.current),
         mode: () => modeRef.current,
+        car: () => carRef.current,
       },
-      theme === "classic",
+      theme === "retro",
     );
     guidance.current = g;
     return () => {
@@ -250,27 +254,11 @@ export default function App() {
     };
   }, [map, theme]);
 
-  // The car that drives your route.
-  useEffect(() => {
-    if (!map) return;
-    const d = new Driver(map, {
-      onProgress: (progress, left) => setDrive({ status: "driving", progress, left }),
-      onArrive: () => setDrive({ status: "arrived", progress: 1, left: 0 }),
-    });
-    driver.current = d;
-    return () => {
-      d.stop();
-      driver.current = null;
-    };
-  }, [map]);
-
   // Fetch a road route whenever both ends are set.
   useEffect(() => {
     if (!map) return;
-    driver.current?.stop();
     guidance.current?.stop();
     setNav(null);
-    setDrive({ status: "idle", progress: 0, left: 0 });
     const { from, to } = trip;
     if (!from || !to) {
       setRoute(null);
@@ -315,8 +303,8 @@ export default function App() {
     if (!map) return;
     const onClick = async (e: maplibregl.MapMouseEvent) => {
       let at: LngLat = [e.lngLat.lng, e.lngLat.lat];
-      const { sheet: open, drive: driving } = live.current;
-      if (driving.status === "driving") return;
+      const { sheet: open, nav: guided } = live.current;
+      if (guided) return;
       if (open?.kind === "editor") {
         setSheet({ kind: "editor", draft: { ...open.draft, at } });
         return;
@@ -425,13 +413,10 @@ export default function App() {
     let off = () => {};
     let gone = false;
     void onBackButton(() => {
-      const { sheet: open, drive: driving, card: shown, nav: guided } = live.current;
+      const { sheet: open, card: shown, nav: guided } = live.current;
       if (guided) {
         guidance.current?.stop();
         setNav(null);
-      } else if (driving.status !== "idle") {
-        driver.current?.stop();
-        setDrive({ status: "idle", progress: 0, left: 0 });
       } else if (open) setSheet(null);
       else if (shown) setCard(null);
       else return false;
@@ -542,13 +527,11 @@ export default function App() {
     guidance.current?.setVoice(on);
   };
 
-  const startNav = () => {
+  const startNav = (demo = false) => {
     if (!route || !trip.to) return;
     setCard(null);
     setSheet(null);
-    driver.current?.stop();
-    setDrive({ status: "idle", progress: 0, left: 0 });
-    void guidance.current?.start(route, trip.to.at, voice);
+    void guidance.current?.start(route, trip.to.at, voice, demo);
   };
 
   const endNav = () => {
@@ -556,32 +539,15 @@ export default function App() {
     setNav(null);
   };
 
-  const startDrive = () => {
-    if (!route) return;
-    setCard(null);
-    setSheet(null);
-    setDrive({ status: "driving", progress: 0, left: route.distance });
-    driver.current?.start(route.line, car);
-  };
-
-  const endDrive = () => {
-    driver.current?.stop();
-    setDrive({ status: "idle", progress: 0, left: 0 });
-  };
-
-  const pickCar = (id: string) => {
-    setCar(id);
-    driver.current?.setCar(id);
-  };
+  const pickCar = (id: string) => setCar(id);
 
   const cardSaved = card?.kind === "saved" ? placeById(card.id) : undefined;
   const cardPlace = card?.kind === "pin" ? card.place : cardSaved ? savedToPlace(cardSaved) : null;
-  const driving = drive.status !== "idle";
   const canSaveEnd = (p: Place) => !places.some((s) => samePlace(s.at, p.at));
 
   return (
     <div
-      className={`app theme-${theme}${sheet ? " sheet-open" : ""}${driving ? " driving" : ""}${nav ? " navigating" : ""}`}
+      className={`app theme-${theme}${sheet ? " sheet-open" : ""}${nav ? " navigating" : ""}`}
     >
       <div className="map-stack">
         <div ref={artHost} className="map art-map" />
@@ -668,14 +634,12 @@ export default function App() {
               <span className="dim"> · {formatDistance(route.distance)}</span>
             </div>
             <div className="summary-actions">
-              <button className="pixel-btn go-from start-btn" onClick={startNav} aria-label="Start navigation">
+              <button className="pixel-btn go-from start-btn" onClick={() => startNav()} aria-label="Start navigation">
                 START
               </button>
-              {theme === "retro" && mode === "drive" && (
-                <button className="pixel-btn" onClick={startDrive} aria-label="Watch the car drive the route">
-                  CAR ▶
-                </button>
-              )}
+              <button className="pixel-btn" onClick={() => startNav(true)} aria-label="Preview the drive">
+                PREVIEW
+              </button>
               <button className="pixel-btn" onClick={() => setShowSteps((s) => !s)}>
                 {showSteps ? "HIDE" : "STEPS"}
               </button>
@@ -706,40 +670,13 @@ export default function App() {
             voice={voice}
             onVoice={changeVoice}
             onRecenter={() => guidance.current?.recenter()}
+            onTilt={(on) => guidance.current?.setTilt(on)}
             onEnd={endNav}
           />
         </>
       )}
 
-      {driving && !nav && (
-        <section className="panel drive-bar" aria-live="polite">
-          {drive.status === "driving" ? (
-            <>
-              <button className="pixel-btn go-to" onClick={endDrive}>
-                ■ STOP
-              </button>
-              <div className="meter" role="progressbar" aria-valuenow={Math.round(drive.progress * 100)} aria-valuemin={0} aria-valuemax={100}>
-                {Array.from({ length: 14 }, (_, i) => (
-                  <span key={i} className={i < Math.round(drive.progress * 14) ? "seg on" : "seg"} />
-                ))}
-              </div>
-              <span className="left">{formatDistance(drive.left)}</span>
-            </>
-          ) : (
-            <>
-              <span className="arrived">★ YOU MADE IT!</span>
-              <button className="pixel-btn go-from" onClick={startDrive}>
-                AGAIN
-              </button>
-              <button className="pixel-btn" onClick={endDrive}>
-                DONE
-              </button>
-            </>
-          )}
-        </section>
-      )}
-
-      {cardPlace && !sheet && !driving && !nav && (
+      {cardPlace && !sheet && !nav && (
         <section className="panel drop-panel">
           <div className="drop-info">
             {cardSaved && (

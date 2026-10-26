@@ -666,65 +666,6 @@ button {
   z-index: 5;
 }
 
-.car-inner .sprite {
-  filter: drop-shadow(0 3px 0 #0e0c2266);
-}
-
-/* ---- Driving bar ---- */
-
-.drive-bar {
-  top: 12px;
-  left: 12px;
-  right: 12px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-}
-
-@media (min-width: 760px) {
-  .drive-bar {
-    right: auto;
-    width: 440px;
-  }
-}
-
-.meter {
-  display: flex;
-  flex: 1;
-  gap: 2px;
-}
-
-.seg {
-  flex: 1;
-  height: 18px;
-  background: var(--panel-deep);
-  border: 2px solid var(--ink);
-}
-
-.seg.on {
-  background: var(--green);
-}
-
-.left {
-  min-width: 64px;
-  text-align: right;
-  font-size: 24px;
-}
-
-.arrived {
-  flex: 1;
-  font-family: var(--head);
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--gold);
-  text-shadow: 2px 2px 0 var(--ink);
-}
-
-.app.driving .trip-panel {
-  display: none;
-}
-
 /* ---- Place card ---- */
 
 .drop-info {
@@ -1098,13 +1039,6 @@ button {
     font-size: 15px;
   }
 
-  .drive-bar {
-    top: 8px;
-    left: 8px;
-    right: auto;
-    width: min(440px, 62vw);
-    padding: 6px 8px;
-  }
 
   .menu-btn {
     min-height: 28px;
@@ -1251,54 +1185,76 @@ button {
   bottom: 96px;
 }
 
-/* You, on the map: a blue dot with a direction arrow. */
-.nav-dot {
-  position: relative;
-  width: 22px;
-  height: 22px;
+/* You, on the map: a flat blue arrow in the classic look, a pixel car seen from behind in retro. */
+.nav-chevron {
+  width: 46px;
+  height: 46px;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.4));
+  pointer-events: none;
 }
 
-.nav-core {
+.nav-car {
+  pointer-events: none;
+}
+
+.nav-car img {
+  display: block;
+  width: 60px;
+  height: 48px;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 6px 3px rgba(0, 0, 0, 0.35));
+}
+
+.nav-chips {
   position: absolute;
-  inset: 2px;
-  border-radius: 50%;
-  background: #1a73e8;
-  border: 3px solid #fff;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+  left: 12px;
+  bottom: 108px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  pointer-events: none;
 }
 
-.nav-pulse {
-  position: absolute;
-  inset: -10px;
-  border-radius: 50%;
-  background: rgba(26, 115, 232, 0.22);
-  animation: navpulse 2s ease-out infinite;
+.nav-speed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 52px;
+  padding: 6px 8px;
+  line-height: 1;
+  border-radius: 12px;
+  background: #fff;
+  color: #202124;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
 }
 
-.nav-arrow {
-  position: absolute;
-  left: 50%;
-  top: -16px;
-  transform: translateX(-50%);
-  border-left: 8px solid transparent;
-  border-right: 8px solid transparent;
-  border-bottom: 15px solid #1a73e8;
-  filter: drop-shadow(0 0 1px #fff);
+.nav-speed b {
+  font-size: 22px;
+  font-weight: 700;
 }
 
-.nav-dot.no-heading .nav-arrow {
-  display: none;
+.nav-speed i {
+  margin-top: 2px;
+  font-size: 10px;
+  font-style: normal;
+  opacity: 0.7;
 }
 
-@keyframes navpulse {
-  0% {
-    transform: scale(0.6);
-    opacity: 1;
-  }
-  100% {
-    transform: scale(1.4);
-    opacity: 0;
-  }
+.tilt-btn {
+  font-size: 13px;
+}
+
+.nav-demo {
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  border-radius: 6px;
+  background: #b26a00;
+  color: #fff;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.35);
 }
 
 /* ---- Menu: look and voice ---- */

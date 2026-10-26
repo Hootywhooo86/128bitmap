@@ -100,7 +100,7 @@ export async function watchPosition(onFix: (fix: Fix) => void, onError: (message
           ? "Location is blocked. Allow it in your browser settings to get directions as you move."
           : "Can't find your position right now.",
       ),
-    { enableHighAccuracy: true, maximumAge: 1000, timeout: 20000 },
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 },
   );
   return () => navigator.geolocation.clearWatch(id);
 }

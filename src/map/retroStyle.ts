@@ -173,6 +173,22 @@ export function retroStyle(): StyleSpecification {
         paint: { "fill-color": PALETTE.building, "fill-outline-color": PALETTE.buildingEdge },
       },
       {
+        id: "building-3d",
+        type: "fill-extrusion",
+        source: "omt",
+        "source-layer": "building",
+        minzoom: 15,
+        // Only shown while navigating, so the flat pixel buildings keep their outlines when browsing.
+        layout: { visibility: "none" },
+        paint: {
+          "fill-extrusion-color": PALETTE.building,
+          "fill-extrusion-height": ["max", 4, ["coalesce", ["get", "render_height"], 6]],
+          "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
+          "fill-extrusion-opacity": 1,
+          "fill-extrusion-vertical-gradient": false,
+        },
+      },
+      {
         id: "rail",
         type: "line",
         source: "omt",

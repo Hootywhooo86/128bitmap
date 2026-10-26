@@ -14,8 +14,11 @@ It looks like a normal maps app by default. If you like, there is an optional **
 ## What it does
 
 - **Directions from A to B.** Search as you type, tap the map to drop a pin, or use your location. Choose **Drive, Walk or Bike**. You get the time, distance and a list of steps.
-- **Real guidance while you move.** Press **START** and it follows your GPS position: a big banner shows the next turn and how far away it is, with a "then" preview, the time you'll arrive and how much is left. The map turns to face the way you're heading. Drag the map to look around and tap **RECENTER** to snap back.
-- **Voice directions.** It says each turn out loud ("In 500 feet, turn left onto 87 Avenue"). Turn it off from the speaker button or the menu.
+- **Real guidance while you move.** Press **START** and it follows your GPS position: a big banner shows the next turn with a live countdown (the distance ticks down as you drive), a "then" preview, your speed, the time you'll arrive and how much is left.
+- **A 3D driving view.** The map tilts and turns to face the way the road goes, with you near the bottom of the screen and the map zooming out as you speed up. The **2D / 3D** button flattens it. Drag the map to look around and tap **RECENTER** to snap back. In the classic look you are a blue arrow lying on the road; in the retro look you are a pixel car seen from behind, with the buildings rising up in chunky 3D.
+- **Smooth, on-the-road position.** GPS only reports about once a second, so the app snaps you to the road, keeps moving you at your speed between reports, steers the camera by the road's direction (not the jittery GPS compass) and ignores wild one-off readings.
+- **Voice directions in three steps.** A heads-up ("In half a mile, turn left onto 87 Avenue"), a reminder, and "Turn left onto 87 Avenue" right at the turn. The distances scale with your speed. Turn it off from the speaker button or the menu.
+- **PREVIEW.** Try the whole thing from your couch: a simulated drive along your route that uses the same view, countdown and voice.
 - **Re-routes when you miss a turn.** If you leave the route it says "Rerouting…" and finds a new way from where you are.
 - **A detailed map.** Shops, restaurants, cafes, clinics, parking, bus and train stops, parks and landmarks show up with icons and names as you zoom in, with footprints and 3D buildings up close. **Tap any place** to select it, then set it as From or To. A **satellite** button (the layers button) switches to real imagery with readable names.
 - **Saved places.** Tap the map (or search) and press **SAVE**, for example Home, Work or the gym. Saved places show up when you type in From or To.
@@ -29,7 +32,7 @@ It looks like a normal maps app by default. If you like, there is an optional **
 Open **MENU → LOOK → Retro** to switch. You get the pixel-art map, a pulsing route, and:
 
 - **50 animated pixel buildings** for your saved places, on 10 shelves (the gym as a dungeon, work as a prison, home as a castle, and 47 more). A name like "Planet Fitness" or "Grandma's house" suggests a fitting one.
-- **10 pixel cars** and a **CAR ▶** button that drives a cartoon car along your route (a preview, separate from real guidance).
+- **10 pixel cars**. Pick yours in the menu and it is the car you drive, seen from behind with glowing tail lights, while you navigate (or **PREVIEW**).
 
 Everything in the retro look is drawn in code (`src/pixel/`), so there are no image files to manage. To see all of it, run `npm run dev` and open `/?sprites`.
 
@@ -104,7 +107,7 @@ The map style, its icons and the common Latin fonts ship inside the app (`public
 
 ## How guidance works
 
-`src/nav/Navigator.ts` follows your position, snaps it to the route near where you last were, works out the next maneuver and its distance, speaks it, and asks for a new route after a few positions away from the road. `src/nav/geometry.ts` holds the maths. Tests fed a fake GPS track along a real route, including driving off it, and checked the banner, the distance left, arrival and re-routing.
+`src/nav/Navigator.ts` takes each GPS fix, snaps it to the route near where you last were, and then runs a frame loop that glides the car along the road at your speed, steers a tilted camera, counts the distance down and speaks each turn in three steps. It asks for a new route after a few positions away from the road. `src/nav/geometry.ts` holds the maths. Tests fed a fake GPS track along a real route (also with noisy and wildly wrong readings), including driving off it, and checked the banner, the live countdown, the camera tilt and smoothness, arrival and re-routing. What they cannot check is how real GPS on a real road behaves, so please try it in a car and tell me what feels off.
 
 ## Built with
 

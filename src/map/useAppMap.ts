@@ -74,9 +74,10 @@ export function useAppMap(theme: Theme, start: MapView) {
       attributionControl: false,
       dragRotate: false,
       pitchWithRotate: false,
-      maxPitch: 0,
+      maxPitch: 60,
     });
     art.touchZoomRotate.disableRotation();
+    art.touchPitch.disable();
     art.on("moveend", () => {
       const c = art.getCenter();
       view.current = { center: [c.lng, c.lat], zoom: art.getZoom() };
@@ -100,7 +101,15 @@ export function useAppMap(theme: Theme, start: MapView) {
         transformRequest,
       });
       const shadow = labels;
-      art.on("move", () => shadow.jumpTo({ center: art.getCenter(), zoom: art.getZoom() }));
+      art.on("move", () =>
+        shadow.jumpTo({
+          center: art.getCenter(),
+          zoom: art.getZoom(),
+          bearing: art.getBearing(),
+          pitch: art.getPitch(),
+          padding: art.getPadding(),
+        }),
+      );
     }
 
     art.on("load", () => {

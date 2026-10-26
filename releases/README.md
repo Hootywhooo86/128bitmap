@@ -14,6 +14,8 @@ It is not for the Play Store and is signed with a throwaway debug key.
 
 - The map loads and looks like a normal maps app.
 - Type where you are going in **To**, tap **USE MY LOCATION AS START**, then **START**. Walk or drive a little: the banner should show the next turn and the distance to it, and it should speak.
+- Tap **PREVIEW** on the route screen to watch a simulated drive in the 3D view, with the countdown and voice.
+- Drive (as a passenger!): the map should tilt, your position should glide along the road, and it should speak three times per turn.
 - Go a different way from the route: it should say "Rerouting" and find a new one.
 - Try **Walk** and **Bike**, and turn the phone sideways.
 - **MENU → LOOK → Retro** switches to the pixel look.

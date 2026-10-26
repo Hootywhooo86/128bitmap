@@ -1,4 +1,4 @@
-import { formatDistance, formatDuration } from "../lib/geo";
+import { formatDistance, formatDuration, usesMiles } from "../lib/geo";
 import type { NavState } from "../nav/Navigator";
 
 // Top card while navigating: the next turn and how far away it is.
@@ -47,6 +47,7 @@ type BarProps = {
   voice: boolean;
   onVoice: (on: boolean) => void;
   onRecenter: () => void;
+  onTilt: (on: boolean) => void;
   onEnd: () => void;
 };
 
@@ -64,13 +65,25 @@ function Speaker({ on }: { on: boolean }) {
 }
 
 // Bottom card while navigating: arrival time, time and distance left, and the controls.
-export function NavBar({ state, voice, onVoice, onRecenter, onEnd }: BarProps) {
+export function NavBar({ state, voice, onVoice, onRecenter, onTilt, onEnd }: BarProps) {
   const arrived = state.phase === "arrived";
   const eta = new Date(state.etaAt).toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
   });
+  const kmh = state.speed * 3.6;
+  const shown = Math.round(usesMiles() ? kmh / 1.609344 : kmh);
   return (
+    <>
+      {!arrived && state.phase === "active" && (
+        <div className="nav-chips">
+          {state.demo && <span className="nav-demo">PREVIEW</span>}
+          <span className="nav-speed" aria-label="Speed">
+            <b>{shown}</b>
+            <i>{usesMiles() ? "mph" : "km/h"}</i>
+          </span>
+        </div>
+      )}
     <section className="panel nav-bar">
       <div className="nav-eta">
         {arrived ? (
@@ -93,6 +106,11 @@ export function NavBar({ state, voice, onVoice, onRecenter, onEnd }: BarProps) {
           </button>
         )}
         {!arrived && (
+          <button className="pixel-btn icon-btn tilt-btn" onClick={() => onTilt(!state.tilt)} aria-label={state.tilt ? "Flat map view" : "3D view"} aria-pressed={state.tilt}>
+            {state.tilt ? "2D" : "3D"}
+          </button>
+        )}
+        {!arrived && (
           <button
             className="pixel-btn icon-btn"
             onClick={() => onVoice(!voice)}
@@ -107,5 +125,6 @@ export function NavBar({ state, voice, onVoice, onRecenter, onEnd }: BarProps) {
         </button>
       </div>
     </section>
+    </>
   );
 }
